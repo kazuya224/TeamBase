@@ -25,7 +25,7 @@ function AppContent() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* メインコンテンツ */}
-      <main className="lg:ml-64 pt-16">
+      <main className="lg:ml-64">
         <Routes>
           <Route path="/" element={<ScoreInput />} />
           <Route path="/score-input" element={<ScoreInput />} />
