@@ -36,7 +36,7 @@ export type PlayType =
 export type Position = 
   | 'P' | 'C' | '1B' | '2B' | '3B' | 'SS' | 'LF' | 'CF' | 'RF';
 
-export type Base = 0 | 1 | 2 | 3;
+export type Base = 0 | 1 | 2 | 3 | 4;
 
 export interface Pitch {
   pitchNumber: number;
@@ -48,12 +48,37 @@ export interface Pitch {
   notes?: string;
 }
 
+export type RunnerAdvanceReason =
+  | "SB"
+  | "CS"
+  | "SB+E"
+  | "PO"
+  | "POE"
+  | "WP"
+  | "PB"
+  | "BK"
+  | "DI"
+  | "Hit"
+  | "BB"
+  | "HBP"
+  | "SF"
+  | "SH"
+  | "E"
+  | "FC"
+  | "Award"
+  | "Interference"
+  | "Appeal"
+  | "Return"
+  | "Other";
+
 export interface RunnerAdvance {
+  runnerId: "R1" | "R2" | "R3" | "BR";
   fromBase: Base;
   toBase: Base;
   scored: boolean;
   out: boolean;
   runnerName: string;
+  reason: RunnerAdvanceReason;
   position?: Position;
   playType?: PlayType;
 }
@@ -269,14 +294,14 @@ export interface RunnerAdvance {
 }
 
 // バントの種類
-export type BuntType = 
-  | "sacrifice"      // 犠打
-  | "safety"         // セーフティ
-  | "squeeze"        // スクイズ
-  | "delayedSqueeze" // ディレードスクイズ
-  | "buster"         // バスター
-  | "failed"         // 失敗
-  ;
+// export type BuntType = 
+//   | "sacrifice"      // 犠打
+//   | "safety"         // セーフティ
+//   | "squeeze"        // スクイズ
+//   | "delayedSqueeze" // ディレードスクイズ
+//   | "buster"         // バスター
+//   | "failed"         // 失敗
+//   ;
 
 // 走塁戦術
 export type BaserunningPlay = 
@@ -315,6 +340,73 @@ export interface PitchDetails {
   location?: "insideHigh" | "insideLow" | "outsideHigh" | "outsideLow" | "middle";
 }
 
+// 画面フロー管理
+export type ScreenFlow = 
+  | 'pitch'           // 投球画面
+  | 'batting'         // 打撃画面
+  | 'defense'         // 守備画面
+  | 'runner'          // 走者画面
+  | 'cutPlay'         // カットプレー画面
+  | 'rundown'         // 挟殺画面
+  | 'result';         // 結果画面
+
+// 三振時の処理
+export type StrikeoutType = 
+  | 'normal'          // 通常の三振
+  | 'droppedThird';   // 振り逃げ
+
+// ファウルの種類
+export type FoulType = 
+  | 'normal'          // 通常のファウル（継続）
+  | 'caught'          // 捕球ファウル（フライアウト）
+  | 'tip';            // ファウルチップ（ストライク、ボールインプレー）
+
+// バントの種類（要件に合わせて更新）
+export type BuntType = 
+  | "normal"          // 通常
+  | "safety"          // セーフティ
+  | "squeeze";        // スーサイド（スクイズ）
+
+// オプションの種類
+export type OptionType = 
+  | 'wildPitch'       // WP
+  | 'passedBall'      // PB
+  | 'balk'            // ボーク
+  | 'intentionalWalk' // 申告敬遠
+  | 'batterInterference'  // 打撃妨害
+  | 'defenseInterference' // 守備妨害
+  | 'runnerInterference'  // 走塁妨害
+  | 'pickoff';        // 牽制
+
+// 妨害の種類
+export type InterferenceType = 
+  | 'batter'          // 打撃妨害
+  | 'defense'         // 守備妨害
+  | 'runner';         // 走塁妨害
+
+// アピール情報
+export interface AppealInfo {
+  runnerId: 'R1' | 'R2' | 'R3' | 'BR';
+  base: Base;
+  reason: string;     // アピール事由
+  result: 'safe' | 'out';
+  runCancelled?: boolean; // 得点取消
+}
+
+// 結果画面の結果タイプ
+export type ResultType = 
+  | 'safe'            // セーフ
+  | 'out'             // アウト
+  | 'tagOut'          // タッチアウト
+  | 'doublePlay'      // 併殺
+  | 'triplePlay';     // 三重殺
+
+// インフィールドフライ判定条件
+export interface InfieldFlyCondition {
+  outs: 0 | 1;        // 無死 or 一死
+  runners: (1 | 2 | 3)[]; // 一二/一三/満塁
+}
+
 // AtBat に追加するフィールド
 export interface AtBat {
   batterName: string;
@@ -339,4 +431,17 @@ export interface AtBat {
     originalPlayer: string;
     newPlayer: string;
   };
+  
+  // 🆕 要件対応の追加フィールド
+  strikeoutType?: StrikeoutType;      // 三振の種類
+  foulType?: FoulType;                // ファウルの種類
+  optionType?: OptionType;            // オプションの種類
+  interferenceType?: InterferenceType; // 妨害の種類
+  appealInfo?: AppealInfo;            // アピール情報
+  infieldFly?: boolean;               // インフィールドフライフラグ
+  resultType?: ResultType;            // 結果画面の結果
+  droppedThirdStrike?: boolean;       // 振り逃げフラグ
+  caughtFoul?: boolean;               // 捕球ファウルフラグ
+  foulTip?: boolean;                  // ファウルチップフラグ
+  ballInPlay?: boolean;               // ボールインプレー（ファウルチップ時）
 }
