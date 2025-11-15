@@ -12,10 +12,16 @@ interface RunnerScreenProps {
   currentBatterName?: string;
   onComplete: (advances: RunnerAdvance[]) => void;
   onNavigateToResult: () => void;
-  onNavigateToDefense?: () => void;
   onNavigateToCutPlay?: () => void;
   onNavigateToRundown?: () => void;
   onNavigateToRunner?: () => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
+  showNavigationButtons?: boolean;
+  onNavigateToCutPlayFromButtons?: () => void;
+  onNavigateToRundownFromButtons?: () => void;
+  onNavigateToRunnerFromButtons?: () => void;
+  onNavigateToResultFromButtons?: () => void;
 }
 
 const ADVANCE_REASONS: { value: RunnerAdvanceReason; label: string }[] = [
@@ -48,10 +54,16 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
   currentBatterName,
   onComplete,
   onNavigateToResult,
-  onNavigateToDefense,
   onNavigateToCutPlay,
   onNavigateToRundown,
   onNavigateToRunner,
+  onBack,
+  canGoBack,
+  showNavigationButtons,
+  onNavigateToCutPlayFromButtons,
+  onNavigateToRundownFromButtons,
+  onNavigateToRunnerFromButtons,
+  onNavigateToResultFromButtons,
 }) => {
   const [selectedRunner, setSelectedRunner] = useState<string | "BR">("");
   const [selectedToBase, setSelectedToBase] = useState<Base | null>(null);
@@ -189,7 +201,17 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
 
   return (
     <div>
-      <h3 className="text-sm font-bold mb-3 text-gray-300">走者進塁</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-300">走者進塁</h3>
+        {canGoBack && onBack && (
+          <button
+            onClick={onBack}
+            className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
+          >
+            ← 戻る
+          </button>
+        )}
+      </div>
 
       <div className="mb-3">
         <div className="text-xs text-gray-400 mb-1">該当する走者を選択</div>
@@ -406,7 +428,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         >
           確定
         </button>
-        <button
+        {/* <button
           onClick={() => {
             if (runnerAdvances.length === 0) {
               if (
@@ -423,7 +445,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
           className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
         >
           結果へ
-        </button>
+        </button> */}
       </div>
 
       <div className="mt-4 border-t border-gray-700 pt-3">
@@ -468,13 +490,45 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         </div>
       </div>
 
-      <NavigationButtons
-        onNavigateToDefense={onNavigateToDefense}
-        onNavigateToCutPlay={onNavigateToCutPlay}
-        onNavigateToRundown={onNavigateToRundown}
-        onNavigateToRunner={onNavigateToRunner}
-        onNavigateToResult={onNavigateToResult}
-      />
+      {!showNavigationButtons && (
+        <NavigationButtons
+          onNavigateToCutPlay={onNavigateToCutPlay}
+          onNavigateToRundown={onNavigateToRundown}
+          onNavigateToRunner={onNavigateToRunner}
+          onNavigateToResult={onNavigateToResult}
+        />
+      )}
+      {showNavigationButtons && (
+        <div className="mt-4 border-t border-gray-700 pt-3">
+          <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              onClick={onNavigateToCutPlayFromButtons}
+              className="py-2 bg-blue-600 rounded-lg font-bold text-xs"
+            >
+              カット
+            </button>
+            <button
+              onClick={onNavigateToRundownFromButtons}
+              className="py-2 bg-orange-600 rounded-lg font-bold text-xs"
+            >
+              挟殺
+            </button>
+            <button
+              onClick={onNavigateToRunnerFromButtons}
+              className="py-2 bg-green-600 rounded-lg font-bold text-xs"
+            >
+              走者
+            </button>
+            {/* <button
+              onClick={onNavigateToResultFromButtons}
+              className="py-2 bg-red-600 rounded-lg font-bold text-xs"
+            >
+              結果
+            </button> */}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

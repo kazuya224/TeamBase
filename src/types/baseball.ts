@@ -205,7 +205,6 @@ export interface RunnerInfo {
 export type ScreenType =
   | "pitch"
   | "batting"
-  | "defense"
   | "runner"
   | "cutPlay"
   | "rundown"

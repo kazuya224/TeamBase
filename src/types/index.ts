@@ -344,7 +344,6 @@ export interface PitchDetails {
 export type ScreenFlow = 
   | 'pitch'           // 投球画面
   | 'batting'         // 打撃画面
-  | 'defense'         // 守備画面
   | 'runner'          // 走者画面
   | 'cutPlay'         // カットプレー画面
   | 'rundown'         // 挟殺画面

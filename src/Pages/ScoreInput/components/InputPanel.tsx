@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import type {
   Pitch,
   RunnerInfo,
@@ -14,7 +14,6 @@ import type {
 } from "../../../types/baseball";
 import { BattedBallInput } from "./BattedBallInput";
 import { BuntTypeSelection } from "./BuntTypeSelection";
-import { DefenseScreen } from "./DefenseScreen";
 import { CutPlayScreen } from "./CutPlayScreen";
 import { RundownScreen } from "./RundownScreen";
 import { RunnerScreen } from "./RunnerScreen";
@@ -40,7 +39,6 @@ interface InputPanelProps {
   currentScreen:
     | "pitch"
     | "batting"
-    | "defense"
     | "runner"
     | "cutPlay"
     | "rundown"
@@ -50,13 +48,14 @@ interface InputPanelProps {
     screen:
       | "pitch"
       | "batting"
-      | "defense"
       | "runner"
       | "cutPlay"
       | "rundown"
       | "result"
       | "buntType"
   ) => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
   pendingAtBat: AtBat | null;
   setPendingAtBat: React.Dispatch<React.SetStateAction<AtBat | null>>;
   saveAtBatWithPending: (atBat: AtBat, shouldAdvanceBatter?: boolean) => void;
@@ -88,6 +87,8 @@ export const InputPanel: React.FC<InputPanelProps> = ({
   onOpenRunnerModal,
   currentScreen,
   setCurrentScreen,
+  onBack,
+  canGoBack,
   pendingAtBat,
   setPendingAtBat,
   saveAtBatWithPending,
@@ -100,6 +101,30 @@ export const InputPanel: React.FC<InputPanelProps> = ({
   handleFinishPlay,
   calculateForcedAdvances,
 }) => {
+  const [showNavigationButtons, setShowNavigationButtons] =
+    React.useState(false);
+  const [selectedOption, setSelectedOption] = React.useState<string | null>(
+    null
+  );
+
+  // 画面が変わったときにナビゲーションボタンをリセット（ただし、特定の画面では保持）
+  useEffect(() => {
+    if (
+      currentScreen === "cutPlay" ||
+      currentScreen === "rundown" ||
+      currentScreen === "runner" ||
+      currentScreen === "result"
+    ) {
+      // これらの画面ではボタンを表示し続ける
+      return;
+    }
+    // それ以外の画面に戻ったらリセット
+    if (currentScreen === "pitch" || currentScreen === "batting") {
+      setShowNavigationButtons(false);
+      setSelectedOption(null);
+    }
+  }, [currentScreen]);
+
   const showPitchScreen =
     inputStep === "pitch" &&
     currentScreen !== "cutPlay" &&
@@ -163,20 +188,41 @@ export const InputPanel: React.FC<InputPanelProps> = ({
             <h4 className="text-xs text-gray-400 mb-2">オプション</h4>
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => onOpenRunnerModal("wildPitch")}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                onClick={() => {
+                  setShowNavigationButtons(true);
+                  setSelectedOption("WP");
+                }}
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "WP"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 WP
               </button>
               <button
-                onClick={() => onOpenRunnerModal("passedBall")}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                onClick={() => {
+                  setShowNavigationButtons(true);
+                  setSelectedOption("PB");
+                }}
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "PB"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 PB
               </button>
               <button
-                onClick={() => onOpenRunnerModal("balk")}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                onClick={() => {
+                  setShowNavigationButtons(true);
+                  setSelectedOption("ボーク");
+                }}
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "ボーク"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 ボーク
               </button>
@@ -212,37 +258,49 @@ export const InputPanel: React.FC<InputPanelProps> = ({
                   };
                   saveAtBatWithPending(atBat);
                   resetAtBatInputs();
+                  setSelectedOption("申告敬遠");
                 }}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "申告敬遠"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 申告敬遠
               </button>
               <button
                 onClick={() => {
                   const currentBatter = lineup[currentBatterIndex];
-                  const atBat: AtBat = {
-                    batterName: currentBatter,
-                    battingResult: "interference",
-                    pitches: currentAtBat.pitches,
-                    outs: 0,
-                    rbis: 0,
-                    runnerAdvances: [
-                      {
-                        runnerId: "BR",
-                        fromBase: 0,
-                        toBase: 1,
-                        reason: "BatterInterference",
-                        scored: false,
-                        out: false,
-                        runnerName: currentBatter,
-                      },
-                    ],
-                    timestamp: new Date().toISOString(),
-                  };
-                  saveAtBatWithPending(atBat);
-                  resetAtBatInputs();
+                  if (!pendingAtBat) {
+                    setPendingAtBat({
+                      batterName: currentBatter,
+                      battingResult: "interference",
+                      pitches: currentAtBat.pitches,
+                      outs: 0,
+                      rbis: 0,
+                      runnerAdvances: [
+                        {
+                          runnerId: "BR",
+                          fromBase: 0,
+                          toBase: 1,
+                          reason: "BatterInterference",
+                          scored: false,
+                          out: false,
+                          runnerName: currentBatter,
+                        },
+                      ],
+                      timestamp: new Date().toISOString(),
+                    });
+                  }
+                  setCurrentScreen("runner");
+                  setShowNavigationButtons(true);
+                  setSelectedOption("打撃妨害");
                 }}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "打撃妨害"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 打撃妨害
               </button>
@@ -260,8 +318,14 @@ export const InputPanel: React.FC<InputPanelProps> = ({
                     });
                   }
                   setCurrentScreen("runner");
+                  setShowNavigationButtons(true);
+                  setSelectedOption("守備妨害");
                 }}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "守備妨害"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 守備妨害
               </button>
@@ -279,18 +343,62 @@ export const InputPanel: React.FC<InputPanelProps> = ({
                     });
                   }
                   setCurrentScreen("runner");
+                  setShowNavigationButtons(true);
+                  setSelectedOption("走塁妨害");
                 }}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "走塁妨害"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 走塁妨害
               </button>
               <button
-                onClick={() => onOpenRunnerModal("pickoff")}
-                className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
+                onClick={() => {
+                  setShowNavigationButtons(true);
+                  setSelectedOption("牽制");
+                }}
+                className={`py-2 rounded-lg font-bold text-xs ${
+                  selectedOption === "牽制"
+                    ? "bg-blue-600 ring-2 ring-blue-400"
+                    : "bg-gray-700"
+                }`}
               >
                 牽制
               </button>
             </div>
+            {showNavigationButtons && (
+              <div className="mt-3 border-t border-gray-700 pt-3">
+                <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
+                <div className="grid grid-cols-4 gap-2">
+                  <button
+                    onClick={() => setCurrentScreen("cutPlay")}
+                    className="py-2 bg-blue-600 rounded-lg font-bold text-xs"
+                  >
+                    カット
+                  </button>
+                  <button
+                    onClick={() => setCurrentScreen("rundown")}
+                    className="py-2 bg-orange-600 rounded-lg font-bold text-xs"
+                  >
+                    挟殺
+                  </button>
+                  <button
+                    onClick={() => setCurrentScreen("runner")}
+                    className="py-2 bg-green-600 rounded-lg font-bold text-xs"
+                  >
+                    走者
+                  </button>
+                  {/* <button
+                    onClick={() => setCurrentScreen("result")}
+                    className="py-2 bg-red-600 rounded-lg font-bold text-xs"
+                  >
+                    結果
+                  </button> */}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -303,13 +411,15 @@ export const InputPanel: React.FC<InputPanelProps> = ({
           onSetHitType={onSetHitType}
           onSetHitDirection={onSetHitDirection}
           onSetPosition={onSetPosition}
-          onNext={() => setCurrentScreen("defense")}
+          onNext={() => setCurrentScreen("runner")}
           onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
           onNavigateToRundown={() => setCurrentScreen("rundown")}
           onNavigateToRunner={() => setCurrentScreen("runner")}
           onNavigateToResult={() => setCurrentScreen("result")}
           onBattingResultSelect={handleBattingResultSelect}
           onFinishPlay={handleFinishPlay}
+          onBack={onBack}
+          canGoBack={canGoBack}
         />
       )}
 
@@ -319,99 +429,118 @@ export const InputPanel: React.FC<InputPanelProps> = ({
             onSetBuntType(type);
             onSetInputStep("batted");
           }}
-        />
-      )}
-
-      {currentScreen === "defense" && (
-        <DefenseScreen
-          hitType={selectedHitType || undefined}
-          onNext={() => setCurrentScreen("runner")}
-          onComplete={(defensiveSequence, errors) => {
-            const positions = defensiveSequence
-              .filter((step) => step.position)
-              .map((step) => step.position!);
-            const defensePath = defensiveSequence
-              .map((step) => {
-                if (step.errorType === "catch") return "捕球E";
-                if (step.errorType === "throw") return "送球E";
-                if (step.errorType === "FC") return "FC";
-                return step.position;
-              })
-              .filter((x) => x) as string[];
-
-            if (pendingAtBat) {
-              setPendingAtBat({
-                ...pendingAtBat,
-                defensivePositions: positions,
-                defensePath,
-                errors: errors.length > 0 ? errors : undefined,
-              });
-            } else {
-              const atBat: AtBat = {
-                batterName: "",
-                battingResult: "single",
-                pitches: currentAtBat.pitches,
-                outs: 0,
-                rbis: 0,
-                hitDirection: selectedHitDirection || undefined,
-                hitType: selectedHitType || undefined,
-                position: selectedPosition || undefined,
-                defensivePositions: positions,
-                defensePath,
-                errors: errors.length > 0 ? errors : undefined,
-                infieldFly:
-                  checkInfieldFlyCondition() && selectedHitType === "fly",
-              };
-              setPendingAtBat(atBat);
-            }
-            setCurrentScreen("runner");
-          }}
-          onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
-          onNavigateToRundown={() => setCurrentScreen("rundown")}
-          onNavigateToRunner={() => setCurrentScreen("runner")}
-          onNavigateToResult={() => setCurrentScreen("result")}
+          onBack={onBack}
+          canGoBack={canGoBack}
         />
       )}
 
       {currentScreen === "cutPlay" && (
-        <CutPlayScreen
-          onComplete={(positions) => {
-            if (pendingAtBat) {
-              setPendingAtBat({
-                ...pendingAtBat,
-                defensivePositions: positions,
-                playType: "cutoffPlay",
-              });
-            }
-            setCurrentScreen("result");
-          }}
-          onNavigateToResult={() => setCurrentScreen("result")}
-          onNavigateToDefense={() => setCurrentScreen("defense")}
-          onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
-          onNavigateToRundown={() => setCurrentScreen("rundown")}
-          onNavigateToRunner={() => setCurrentScreen("runner")}
-        />
+        <>
+          <CutPlayScreen
+            onComplete={(positions) => {
+              if (pendingAtBat) {
+                setPendingAtBat({
+                  ...pendingAtBat,
+                  defensivePositions: positions,
+                  playType: "cutoffPlay",
+                });
+              }
+              setCurrentScreen("result");
+            }}
+            onNavigateToResult={() => setCurrentScreen("result")}
+            onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
+            onNavigateToRundown={() => setCurrentScreen("rundown")}
+            onNavigateToRunner={() => setCurrentScreen("runner")}
+            onBack={onBack}
+            canGoBack={canGoBack}
+          />
+          {showNavigationButtons && (
+            <div className="mt-4 border-t border-gray-700 pt-3">
+              <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  onClick={() => setCurrentScreen("cutPlay")}
+                  className="py-2 bg-blue-600 rounded-lg font-bold text-xs"
+                >
+                  カット
+                </button>
+                <button
+                  onClick={() => setCurrentScreen("rundown")}
+                  className="py-2 bg-orange-600 rounded-lg font-bold text-xs"
+                >
+                  挟殺
+                </button>
+                <button
+                  onClick={() => setCurrentScreen("runner")}
+                  className="py-2 bg-green-600 rounded-lg font-bold text-xs"
+                >
+                  走者
+                </button>
+                {/* <button
+                  onClick={() => setCurrentScreen("result")}
+                  className="py-2 bg-red-600 rounded-lg font-bold text-xs"
+                >
+                  結果
+                </button> */}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {currentScreen === "rundown" && (
-        <RundownScreen
-          runners={runners}
-          onComplete={(positions) => {
-            if (pendingAtBat) {
-              setPendingAtBat({
-                ...pendingAtBat,
-                defensivePositions: positions,
-                playType: "rundown",
-              });
-            }
-            setCurrentScreen("result");
-          }}
-          onNavigateToResult={() => setCurrentScreen("result")}
-          onNavigateToDefense={() => setCurrentScreen("defense")}
-          onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
-          onNavigateToRundown={() => setCurrentScreen("rundown")}
-          onNavigateToRunner={() => setCurrentScreen("runner")}
-        />
+        <>
+          <RundownScreen
+            runners={runners}
+            onComplete={(positions) => {
+              if (pendingAtBat) {
+                setPendingAtBat({
+                  ...pendingAtBat,
+                  defensivePositions: positions,
+                  playType: "rundown",
+                });
+              }
+              setCurrentScreen("result");
+            }}
+            onNavigateToResult={() => setCurrentScreen("result")}
+            onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
+            onNavigateToRundown={() => setCurrentScreen("rundown")}
+            onNavigateToRunner={() => setCurrentScreen("runner")}
+            onBack={onBack}
+            canGoBack={canGoBack}
+          />
+          {showNavigationButtons && (
+            <div className="mt-4 border-t border-gray-700 pt-3">
+              <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  onClick={() => setCurrentScreen("cutPlay")}
+                  className="py-2 bg-blue-600 rounded-lg font-bold text-xs"
+                >
+                  カット
+                </button>
+                <button
+                  onClick={() => setCurrentScreen("rundown")}
+                  className="py-2 bg-orange-600 rounded-lg font-bold text-xs"
+                >
+                  挟殺
+                </button>
+                <button
+                  onClick={() => setCurrentScreen("runner")}
+                  className="py-2 bg-green-600 rounded-lg font-bold text-xs"
+                >
+                  走者
+                </button>
+                {/* <button
+                  onClick={() => setCurrentScreen("result")}
+                  className="py-2 bg-red-600 rounded-lg font-bold text-xs"
+                >
+                  結果
+                </button> */}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {currentScreen === "runner" && (
@@ -422,46 +551,86 @@ export const InputPanel: React.FC<InputPanelProps> = ({
           }
           onComplete={handleSaveRunnerAdvances}
           onNavigateToResult={() => setCurrentScreen("result")}
-          onNavigateToDefense={() => setCurrentScreen("defense")}
           onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
           onNavigateToRundown={() => setCurrentScreen("rundown")}
           onNavigateToRunner={() => setCurrentScreen("runner")}
+          onBack={onBack}
+          canGoBack={canGoBack}
+          showNavigationButtons={showNavigationButtons}
+          onNavigateToCutPlayFromButtons={() => setCurrentScreen("cutPlay")}
+          onNavigateToRundownFromButtons={() => setCurrentScreen("rundown")}
+          onNavigateToRunnerFromButtons={() => setCurrentScreen("runner")}
+          onNavigateToResultFromButtons={() => setCurrentScreen("result")}
         />
       )}
 
       {currentScreen === "result" && (
-        <ResultScreen
-          runners={runners}
-          currentBatterName={
-            pendingAtBat?.batterName || lineup[currentBatterIndex]
-          }
-          onConfirm={(resultType) => {
-            if (pendingAtBat) {
-              const atBat = {
-                ...pendingAtBat,
-                resultType,
-                outs:
-                  resultType === "out" || resultType === "tagOut"
-                    ? 1
-                    : resultType === "doublePlay"
-                    ? 2
-                    : resultType === "triplePlay"
-                    ? 3
-                    : 0,
-              };
-              saveAtBatWithPending(atBat);
-              setPendingAtBat(null);
-              setCurrentScreen("pitch");
-              resetAtBatInputs();
+        <>
+          <ResultScreen
+            runners={runners}
+            currentBatterName={
+              pendingAtBat?.batterName || lineup[currentBatterIndex]
             }
-          }}
-          onFinishPlay={handleFinishPlay}
-          onNavigateToDefense={() => setCurrentScreen("defense")}
-          onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
-          onNavigateToRundown={() => setCurrentScreen("rundown")}
-          onNavigateToRunner={() => setCurrentScreen("runner")}
-          onNavigateToResult={() => setCurrentScreen("result")}
-        />
+            onConfirm={(resultType) => {
+              if (pendingAtBat) {
+                const atBat = {
+                  ...pendingAtBat,
+                  resultType,
+                  outs:
+                    resultType === "out" || resultType === "tagOut"
+                      ? 1
+                      : resultType === "doublePlay"
+                      ? 2
+                      : resultType === "triplePlay"
+                      ? 3
+                      : 0,
+                };
+                saveAtBatWithPending(atBat);
+                setPendingAtBat(null);
+                setCurrentScreen("pitch");
+                resetAtBatInputs();
+              }
+            }}
+            onFinishPlay={handleFinishPlay}
+            onNavigateToCutPlay={() => setCurrentScreen("cutPlay")}
+            onNavigateToRundown={() => setCurrentScreen("rundown")}
+            onNavigateToRunner={() => setCurrentScreen("runner")}
+            onNavigateToResult={() => setCurrentScreen("result")}
+            onBack={onBack}
+            canGoBack={canGoBack}
+          />
+          {showNavigationButtons && (
+            <div className="mt-4 border-t border-gray-700 pt-3">
+              <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  onClick={() => setCurrentScreen("cutPlay")}
+                  className="py-2 bg-blue-600 rounded-lg font-bold text-xs"
+                >
+                  カット
+                </button>
+                <button
+                  onClick={() => setCurrentScreen("rundown")}
+                  className="py-2 bg-orange-600 rounded-lg font-bold text-xs"
+                >
+                  挟殺
+                </button>
+                <button
+                  onClick={() => setCurrentScreen("runner")}
+                  className="py-2 bg-green-600 rounded-lg font-bold text-xs"
+                >
+                  走者
+                </button>
+                {/* <button
+                  onClick={() => setCurrentScreen("result")}
+                  className="py-2 bg-red-600 rounded-lg font-bold text-xs"
+                >
+                  結果
+                </button> */}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

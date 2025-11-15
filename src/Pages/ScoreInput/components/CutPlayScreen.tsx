@@ -5,21 +5,33 @@ import { NavigationButtons } from "./NavigationButtons";
 interface CutPlayScreenProps {
   onComplete: (positions: Position[]) => void;
   onNavigateToResult: () => void;
-  onNavigateToDefense?: () => void;
   onNavigateToCutPlay?: () => void;
   onNavigateToRundown?: () => void;
   onNavigateToRunner?: () => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
 }
 
-const POSITIONS: Position[] = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"];
+const POSITIONS: Position[] = [
+  "P",
+  "C",
+  "1B",
+  "2B",
+  "3B",
+  "SS",
+  "LF",
+  "CF",
+  "RF",
+];
 
 export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
   onComplete,
   onNavigateToResult,
-  onNavigateToDefense,
   onNavigateToCutPlay,
   onNavigateToRundown,
   onNavigateToRunner,
+  onBack,
+  canGoBack,
 }) => {
   const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
 
@@ -34,7 +46,17 @@ export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
 
   return (
     <div>
-      <h3 className="text-sm font-bold mb-3 text-gray-300">カットプレー</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-300">カットプレー</h3>
+        {canGoBack && onBack && (
+          <button
+            onClick={onBack}
+            className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
+          >
+            ← 戻る
+          </button>
+        )}
+      </div>
       <div className="mb-3">
         <div className="text-xs text-gray-400 mb-1">ポジション番号を選択</div>
         <div className="grid grid-cols-9 gap-1 mb-4">
@@ -43,9 +65,7 @@ export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
               key={pos}
               onClick={() => handlePositionSelect(pos)}
               className={`py-2 rounded font-bold text-xs ${
-                selectedPositions.includes(pos)
-                  ? "bg-blue-600"
-                  : "bg-gray-700"
+                selectedPositions.includes(pos) ? "bg-blue-600" : "bg-gray-700"
               }`}
             >
               {pos}
@@ -61,16 +81,15 @@ export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
         >
           確定
         </button>
-        <button
+        {/* <button
           onClick={onNavigateToResult}
           className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
         >
           結果へ
-        </button>
+        </button> */}
       </div>
 
       <NavigationButtons
-        onNavigateToDefense={onNavigateToDefense}
         onNavigateToCutPlay={onNavigateToCutPlay}
         onNavigateToRundown={onNavigateToRundown}
         onNavigateToRunner={onNavigateToRunner}
@@ -79,4 +98,3 @@ export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
     </div>
   );
 };
-

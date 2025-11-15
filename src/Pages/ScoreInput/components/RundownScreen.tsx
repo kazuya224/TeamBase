@@ -6,10 +6,11 @@ interface RundownScreenProps {
   runners: RunnerInfo[];
   onComplete: (positions: Position[], runnerId?: string) => void;
   onNavigateToResult: () => void;
-  onNavigateToDefense?: () => void;
   onNavigateToCutPlay?: () => void;
   onNavigateToRundown?: () => void;
   onNavigateToRunner?: () => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
 }
 
 const POSITIONS: Position[] = [
@@ -28,10 +29,11 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
   runners,
   onComplete,
   onNavigateToResult,
-  onNavigateToDefense,
   onNavigateToCutPlay,
   onNavigateToRundown,
   onNavigateToRunner,
+  onBack,
+  canGoBack,
 }) => {
   const [defensiveSequence, setDefensiveSequence] = useState<Position[]>([]);
   const [selectedRunner, setSelectedRunner] = useState<string>("");
@@ -52,7 +54,17 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
 
   return (
     <div>
-      <h3 className="text-sm font-bold mb-3 text-gray-300">挟殺</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-300">挟殺</h3>
+        {canGoBack && onBack && (
+          <button
+            onClick={onBack}
+            className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
+          >
+            ← 戻る
+          </button>
+        )}
+      </div>
 
       {runners.length > 0 && (
         <div className="mb-3">
@@ -145,16 +157,15 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
         >
           確定
         </button>
-        <button
+        {/* <button
           onClick={onNavigateToResult}
           className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
         >
           結果へ
-        </button>
+        </button> */}
       </div>
 
       <NavigationButtons
-        onNavigateToDefense={onNavigateToDefense}
         onNavigateToCutPlay={onNavigateToCutPlay}
         onNavigateToRundown={onNavigateToRundown}
         onNavigateToRunner={onNavigateToRunner}

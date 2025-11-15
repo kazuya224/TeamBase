@@ -22,6 +22,8 @@ interface BattedBallInputProps {
   onNavigateToResult: () => void;
   onBattingResultSelect?: (result: BattingResult) => void;
   onFinishPlay?: () => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
 }
 
 const POSITION_LABELS: Record<Position, string> = {
@@ -76,6 +78,8 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
   onNavigateToRunner,
   onNavigateToResult,
   onBattingResultSelect,
+  onBack,
+  canGoBack,
 }) => {
   const [selectedBattingResult, setSelectedBattingResult] = useState<
     BattingResult | ""
@@ -161,7 +165,17 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
 
   return (
     <div>
-      <h3 className="text-sm font-bold mb-3 text-gray-300">打球の種類を選択</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-300">打球の種類を選択</h3>
+        {canGoBack && onBack && (
+          <button
+            onClick={onBack}
+            className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
+          >
+            ← 戻る
+          </button>
+        )}
+      </div>
       <div className="mb-3">
         <div className="text-xs text-gray-400 mb-1">種類</div>
         <div className="grid grid-cols-4 gap-2">
@@ -350,12 +364,12 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
                 >
                   走者
                 </button>
-                <button
+                {/* <button
                   onClick={onNavigateToResult}
                   className="py-2 bg-red-600 rounded-lg font-bold text-xs"
                 >
                   結果
-                </button>
+                </button> */}
               </div>
             </div>
           )}
@@ -364,4 +378,3 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
     </div>
   );
 };
-

@@ -5,7 +5,6 @@
 import React from "react";
 
 interface NavigationButtonsProps {
-  onNavigateToDefense?: () => void;
   onNavigateToCutPlay?: () => void;
   onNavigateToRundown?: () => void;
   onNavigateToRunner?: () => void;
@@ -13,7 +12,6 @@ interface NavigationButtonsProps {
 }
 
 export const NavigationButtons: React.FC<NavigationButtonsProps> = ({
-  onNavigateToDefense,
   onNavigateToCutPlay,
   onNavigateToRundown,
   onNavigateToRunner,
@@ -22,15 +20,7 @@ export const NavigationButtons: React.FC<NavigationButtonsProps> = ({
   return (
     <div className="mt-4 border-t border-gray-700 pt-3">
       <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
-      <div className="grid grid-cols-5 gap-2">
-        {onNavigateToDefense && (
-          <button
-            onClick={onNavigateToDefense}
-            className="py-2 bg-gray-600 rounded-lg font-bold text-xs"
-          >
-            守備
-          </button>
-        )}
+      <div className="grid grid-cols-4 gap-2">
         {onNavigateToCutPlay && (
           <button
             onClick={onNavigateToCutPlay}
@@ -55,16 +45,15 @@ export const NavigationButtons: React.FC<NavigationButtonsProps> = ({
             走者
           </button>
         )}
-        {onNavigateToResult && (
+        {/* {onNavigateToResult && (
           <button
             onClick={onNavigateToResult}
             className="py-2 bg-red-600 rounded-lg font-bold text-xs"
           >
             結果
           </button>
-        )}
+        )} */}
       </div>
     </div>
   );
 };
-

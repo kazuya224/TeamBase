@@ -83,6 +83,25 @@ const ScoreInput: React.FC = () => {
   const [lastAtBatBatterName, setLastAtBatBatterName] = useState<string>("");
 
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("pitch");
+  const [screenHistory, setScreenHistory] = useState<ScreenType[]>([]);
+
+  // 画面遷移を管理する関数（履歴を記録）
+  const navigateToScreen = (screen: ScreenType) => {
+    setScreenHistory((prev) => [...prev, currentScreen]);
+    setCurrentScreen(screen);
+  };
+
+  // 一つ前の画面に戻る関数
+  const goBack = () => {
+    if (screenHistory.length > 0) {
+      const previousScreen = screenHistory[screenHistory.length - 1];
+      setScreenHistory((prev) => prev.slice(0, -1));
+      setCurrentScreen(previousScreen);
+    } else {
+      // 履歴がない場合はpitch画面に戻る
+      setCurrentScreen("pitch");
+    }
+  };
 
   const inputStep =
     currentScreen === "batting"
@@ -229,7 +248,7 @@ const ScoreInput: React.FC = () => {
       newStrikes++;
       if (newStrikes >= 3) {
         if (canDroppedThirdStrike()) {
-          setCurrentScreen("defense");
+          navigateToScreen("runner");
           setPendingAtBat({
             batterName: lineup[currentBatterIndex],
             battingResult: "strikeout",
@@ -294,14 +313,14 @@ const ScoreInput: React.FC = () => {
       setRunnerActionType(""); // 汎用モーダルとして開く
       return;
     } else if (result === "hit") {
-      setCurrentScreen("batting");
+      navigateToScreen("batting");
       return;
     } else if (result === "bunt") {
       if (newStrikes >= 2) {
         completeAtBat("strikeout");
         return;
       }
-      setCurrentScreen("buntType");
+      navigateToScreen("buntType");
       return;
     }
 
@@ -996,7 +1015,9 @@ const ScoreInput: React.FC = () => {
           setIsRunnerModalOpen(true);
         }}
         currentScreen={currentScreen}
-        setCurrentScreen={setCurrentScreen}
+        setCurrentScreen={navigateToScreen}
+        onBack={goBack}
+        canGoBack={screenHistory.length > 0 || currentScreen !== "pitch"}
         pendingAtBat={pendingAtBat}
         setPendingAtBat={setPendingAtBat}
         saveAtBatWithPending={saveAtBatWithPending}

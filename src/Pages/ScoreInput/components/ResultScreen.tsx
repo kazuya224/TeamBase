@@ -21,11 +21,12 @@ interface ResultScreenProps {
     resultType: "safe" | "out" | "tagOut" | "doublePlay" | "triplePlay"
   ) => void;
   onFinishPlay?: () => void;
-  onNavigateToDefense?: () => void;
   onNavigateToCutPlay?: () => void;
   onNavigateToRundown?: () => void;
   onNavigateToRunner?: () => void;
   onNavigateToResult?: () => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
 }
 
 export const ResultScreen: React.FC<ResultScreenProps> = ({
@@ -33,11 +34,12 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   currentBatterName,
   onConfirm,
   onFinishPlay,
-  onNavigateToDefense,
   onNavigateToCutPlay,
   onNavigateToRundown,
   onNavigateToRunner,
   onNavigateToResult,
+  onBack,
+  canGoBack,
 }) => {
   const [selectedRunnerIndex, setSelectedRunnerIndex] = useState<number>(0);
   const [runnerResults, setRunnerResults] = useState<
@@ -106,7 +108,17 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   if (allTargets.length === 0) {
     return (
       <div>
-        <h3 className="text-sm font-bold mb-3 text-gray-300">結果を選択</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-gray-300">結果を選択</h3>
+          {canGoBack && onBack && (
+            <button
+              onClick={onBack}
+              className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
+            >
+              ← 戻る
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-3 gap-2 mb-3">
           <button
             onClick={() => onConfirm("safe")}
@@ -144,7 +156,17 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
 
   return (
     <div>
-      <h3 className="text-sm font-bold mb-3 text-gray-300">結果を選択</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-300">結果を選択</h3>
+        {canGoBack && onBack && (
+          <button
+            onClick={onBack}
+            className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
+          >
+            ← 戻る
+          </button>
+        )}
+      </div>
 
       <div className="mb-3 text-xs text-gray-400">
         {selectedRunnerIndex + 1} / {allTargets.length}
@@ -240,7 +262,6 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
       )}
 
       <NavigationButtons
-        onNavigateToDefense={onNavigateToDefense}
         onNavigateToCutPlay={onNavigateToCutPlay}
         onNavigateToRundown={onNavigateToRundown}
         onNavigateToRunner={onNavigateToRunner}
