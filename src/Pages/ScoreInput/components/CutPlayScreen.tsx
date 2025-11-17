@@ -35,13 +35,16 @@ export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
 }) => {
   const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
 
-  const handlePositionSelect = (pos: Position) => {
-    setSelectedPositions((prev) => {
-      if (prev.includes(pos)) {
-        return prev.filter((p) => p !== pos);
-      }
-      return [...prev, pos];
-    });
+  const togglePosition = (pos: Position) => {
+    setSelectedPositions((prev) =>
+      prev.includes(pos) ? prev.filter((p) => p !== pos) : [...prev, pos]
+    );
+  };
+
+  const handleConfirm = () => {
+    // ボタン側で disabled 制御しているので実質同じだが、安全のため一応ガード
+    if (selectedPositions.length === 0) return;
+    onComplete(selectedPositions);
   };
 
   return (
@@ -57,36 +60,43 @@ export const CutPlayScreen: React.FC<CutPlayScreenProps> = ({
           </button>
         )}
       </div>
+
       <div className="mb-3">
         <div className="text-xs text-gray-400 mb-1">ポジション番号を選択</div>
         <div className="grid grid-cols-9 gap-1 mb-4">
-          {POSITIONS.map((pos) => (
-            <button
-              key={pos}
-              onClick={() => handlePositionSelect(pos)}
-              className={`py-2 rounded font-bold text-xs ${
-                selectedPositions.includes(pos) ? "bg-blue-600" : "bg-gray-700"
-              }`}
-            >
-              {pos}
-            </button>
-          ))}
+          {POSITIONS.map((pos) => {
+            const isSelected = selectedPositions.includes(pos);
+            return (
+              <button
+                key={pos}
+                onClick={() => togglePosition(pos)}
+                className={`py-2 rounded font-bold text-xs ${
+                  isSelected ? "bg-blue-600" : "bg-gray-700"
+                }`}
+              >
+                {pos}
+              </button>
+            );
+          })}
         </div>
       </div>
+
       <div className="flex gap-2 mb-3">
         <button
-          onClick={() => onComplete(selectedPositions)}
-          className="flex-1 py-3 bg-blue-600 rounded-lg font-bold text-sm"
+          onClick={handleConfirm}
+          className="flex-1 py-3 bg-blue-600 rounded-lg font-bold text-sm disabled:opacity-60"
           disabled={selectedPositions.length === 0}
         >
           確定
         </button>
-        {/* <button
+        {/* 
+        <button
           onClick={onNavigateToResult}
           className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
         >
           結果へ
-        </button> */}
+        </button> 
+        */}
       </div>
 
       <NavigationButtons

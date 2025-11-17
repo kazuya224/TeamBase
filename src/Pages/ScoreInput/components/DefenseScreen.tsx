@@ -1,5 +1,10 @@
 import React, { useState } from "react";
-import type { Position, HitType, DefensiveStep, ErrorInfo } from "../../../types/baseball";
+import type {
+  Position,
+  HitType,
+  DefensiveStep,
+  ErrorInfo,
+} from "../../../types/baseball";
 import { NavigationButtons } from "./NavigationButtons";
 
 interface DefenseScreenProps {
@@ -12,7 +17,64 @@ interface DefenseScreenProps {
   hitType?: HitType;
 }
 
-const POSITIONS: Position[] = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"];
+const POSITIONS: Position[] = [
+  "P",
+  "C",
+  "1B",
+  "2B",
+  "3B",
+  "SS",
+  "LF",
+  "CF",
+  "RF",
+];
+
+type ErrorType = "catch" | "throw" | "FC";
+
+const getStepColorClass = (step: DefensiveStep) => {
+  if (step.errorType === "catch") return "bg-red-600";
+  if (step.errorType === "throw") return "bg-orange-600";
+  if (step.errorType === "FC") return "bg-yellow-600";
+  return "bg-purple-600";
+};
+
+const getStepLabel = (step: DefensiveStep) => {
+  if (step.errorType === "catch") return `捕球E${step.position}`;
+  if (step.errorType === "throw") return `送球E${step.position}`;
+  if (step.errorType === "FC") return `FC${step.position}`;
+  return step.position;
+};
+
+interface ErrorButtonGroupProps {
+  label: string;
+  errorType: ErrorType;
+  buttonClassName: string;
+  hoverClassName: string;
+  onClick: (errorType: ErrorType, pos: Position) => void;
+}
+
+const ErrorButtonGroup: React.FC<ErrorButtonGroupProps> = ({
+  label,
+  errorType,
+  buttonClassName,
+  hoverClassName,
+  onClick,
+}) => (
+  <div>
+    <div className="text-[10px] text-gray-500 mb-1 text-center">{label}</div>
+    <div className="grid grid-cols-3 gap-1">
+      {POSITIONS.map((pos) => (
+        <button
+          key={`${errorType}-${pos}`}
+          onClick={() => onClick(errorType, pos)}
+          className={`py-1.5 rounded text-[10px] font-bold ${buttonClassName} ${hoverClassName}`}
+        >
+          {pos}
+        </button>
+      ))}
+    </div>
+  </div>
+);
 
 export const DefenseScreen: React.FC<DefenseScreenProps> = ({
   onNext,
@@ -22,99 +84,90 @@ export const DefenseScreen: React.FC<DefenseScreenProps> = ({
   onNavigateToRunner,
   onNavigateToResult,
 }) => {
-  const [defensiveSequence, setDefensiveSequence] = useState<DefensiveStep[]>([]);
+  const [defensiveSequence, setDefensiveSequence] = useState<DefensiveStep[]>(
+    []
+  );
   const [errors, setErrors] = useState<ErrorInfo[]>([]);
   const [nextStepIndex, setNextStepIndex] = useState(0);
 
+  const hasSequence = defensiveSequence.length > 0;
+
   const handlePositionSelect = (pos: Position) => {
     const currentIndex = nextStepIndex;
-    setDefensiveSequence((prev) => {
-      const newSequence = [...prev];
-      const positionStep: DefensiveStep = {
+
+    setDefensiveSequence((prev) => [
+      ...prev,
+      {
         position: pos,
         stepIndex: currentIndex,
-      };
-      newSequence.push(positionStep);
-      return newSequence;
-    });
+      },
+    ]);
+
     setNextStepIndex((prev) => prev + 1);
   };
 
-  const handleErrorSelect = (errorType: "catch" | "throw" | "FC", pos: Position) => {
+  const handleErrorSelect = (errorType: ErrorType, pos: Position) => {
     const currentIndex = nextStepIndex;
-    setDefensiveSequence((prev) => {
-      const newSequence = [...prev];
-      const errorStep: DefensiveStep = {
+
+    setDefensiveSequence((prev) => [
+      ...prev,
+      {
         position: pos,
-        errorType: errorType,
+        errorType,
         stepIndex: currentIndex,
-      };
-      newSequence.push(errorStep);
-      if (errorType === "catch" || errorType === "throw") {
-        setErrors((prevErrors) => [
-          ...prevErrors,
-          { position: pos, type: errorType },
-        ]);
-      }
-      return newSequence;
-    });
+      },
+    ]);
+
+    // FC は ErrorInfo には入れない仕様はそのまま維持
+    if (errorType === "catch" || errorType === "throw") {
+      setErrors((prevErrors) => [
+        ...prevErrors,
+        { position: pos, type: errorType },
+      ]);
+    }
+
     setNextStepIndex((prev) => prev + 1);
   };
 
   const handleRemoveLast = () => {
-    if (defensiveSequence.length === 0) return;
-    
-    const last = defensiveSequence[defensiveSequence.length - 1];
-    const shouldRemoveError =
-      last.errorType && (last.errorType === "catch" || last.errorType === "throw");
-    
-    // 副作用を分離: setDefensiveSequenceの外でsetErrorsとsetNextStepIndexを呼ぶ
-    if (shouldRemoveError) {
-      setErrors((prevErrors) => {
-        if (prevErrors.length > 0) {
-          return prevErrors.slice(0, -1);
-        }
-        return prevErrors;
-      });
-    }
-    setNextStepIndex((prev) => prev - 1);
-    setDefensiveSequence((prev) => prev.slice(0, -1));
+    if (!hasSequence) return;
+
+    setDefensiveSequence((prev) => {
+      const last = prev[prev.length - 1];
+
+      // catch / throw のときだけ errors からも 1 件削除
+      if (last.errorType === "catch" || last.errorType === "throw") {
+        setErrors((prevErrors) =>
+          prevErrors.length > 0 ? prevErrors.slice(0, -1) : prevErrors
+        );
+      }
+
+      setNextStepIndex((prevIndex) => prevIndex - 1);
+      return prev.slice(0, -1);
+    });
   };
 
   const handleComplete = () => {
-    if (defensiveSequence.length > 0) {
-      onComplete(defensiveSequence, errors);
-    }
+    if (!hasSequence) return;
+    onComplete(defensiveSequence, errors);
   };
 
   return (
     <div>
       <h3 className="text-sm font-bold mb-3 text-gray-300">守備位置を選択</h3>
 
-      {defensiveSequence.length > 0 && (
+      {hasSequence && (
         <div className="mb-3 p-2 bg-gray-800 rounded">
           <div className="text-xs text-gray-400 mb-1">守備シーケンス</div>
           <div className="flex flex-wrap gap-1">
             {defensiveSequence.map((step, idx) => (
               <span
                 key={idx}
-                className={`px-2 py-1 rounded text-xs font-bold ${
-                  step.errorType === "catch"
-                    ? "bg-red-600"
-                    : step.errorType === "throw"
-                    ? "bg-orange-600"
-                    : step.errorType === "FC"
-                    ? "bg-yellow-600"
-                    : "bg-purple-600"
-                }`}
+                className={`px-2 py-1 rounded text-xs font-bold ${getStepColorClass(
+                  step
+                )}`}
               >
-                {step.errorType === "catch"
-                  ? `捕球E${step.position}`
-                  : step.errorType === "throw"
-                  ? `送球E${step.position}`
-                  : step.errorType === "FC"
-                  ? `FC${step.position}`
-                  : step.position}
+                {getStepLabel(step)}
               </span>
             ))}
           </div>
@@ -141,52 +194,31 @@ export const DefenseScreen: React.FC<DefenseScreenProps> = ({
           エラー/FCを追加（守備位置を選択してください）
         </div>
         <div className="grid grid-cols-3 gap-2 mb-2">
-          <div>
-            <div className="text-[10px] text-gray-500 mb-1 text-center">捕球E</div>
-            <div className="grid grid-cols-3 gap-1">
-              {POSITIONS.map((pos) => (
-                <button
-                  key={`catch-${pos}`}
-                  onClick={() => handleErrorSelect("catch", pos)}
-                  className="py-1.5 bg-red-600 rounded text-[10px] font-bold hover:bg-red-700"
-                >
-                  {pos}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] text-gray-500 mb-1 text-center">送球E</div>
-            <div className="grid grid-cols-3 gap-1">
-              {POSITIONS.map((pos) => (
-                <button
-                  key={`throw-${pos}`}
-                  onClick={() => handleErrorSelect("throw", pos)}
-                  className="py-1.5 bg-orange-600 rounded text-[10px] font-bold hover:bg-orange-700"
-                >
-                  {pos}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] text-gray-500 mb-1 text-center">FC</div>
-            <div className="grid grid-cols-3 gap-1">
-              {POSITIONS.map((pos) => (
-                <button
-                  key={`fc-${pos}`}
-                  onClick={() => handleErrorSelect("FC", pos)}
-                  className="py-1.5 bg-yellow-600 rounded text-[10px] font-bold hover:bg-yellow-700"
-                >
-                  {pos}
-                </button>
-              ))}
-            </div>
-          </div>
+          <ErrorButtonGroup
+            label="捕球E"
+            errorType="catch"
+            buttonClassName="bg-red-600"
+            hoverClassName="hover:bg-red-700"
+            onClick={handleErrorSelect}
+          />
+          <ErrorButtonGroup
+            label="送球E"
+            errorType="throw"
+            buttonClassName="bg-orange-600"
+            hoverClassName="hover:bg-orange-700"
+            onClick={handleErrorSelect}
+          />
+          <ErrorButtonGroup
+            label="FC"
+            errorType="FC"
+            buttonClassName="bg-yellow-600"
+            hoverClassName="hover:bg-yellow-700"
+            onClick={handleErrorSelect}
+          />
         </div>
       </div>
 
-      {defensiveSequence.length > 0 && (
+      {hasSequence && (
         <button
           onClick={handleRemoveLast}
           className="w-full py-2 bg-gray-700 rounded-lg font-bold text-xs mb-3"
@@ -204,8 +236,8 @@ export const DefenseScreen: React.FC<DefenseScreenProps> = ({
         </button>
         <button
           onClick={handleComplete}
-          className="flex-1 py-3 bg-blue-600 rounded-lg font-bold text-sm"
-          disabled={defensiveSequence.length === 0}
+          className="flex-1 py-3 bg-blue-600 rounded-lg font-bold text-sm disabled:opacity-60"
+          disabled={!hasSequence}
         >
           確定
         </button>
@@ -220,4 +252,3 @@ export const DefenseScreen: React.FC<DefenseScreenProps> = ({
     </div>
   );
 };
-

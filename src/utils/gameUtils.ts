@@ -51,7 +51,8 @@ export const getCurrentRunners = (
   currentInning: Inning
 ): RunnerInfo[] => {
   const runners: RunnerInfo[] = [];
-  const baseOccupied: Record<1 | 2 | 3, string | null> = {
+  // ベースごとのランナー情報を保持（名前とrunnerId）
+  const baseOccupied: Record<1 | 2 | 3, { name: string; runnerId: "R1" | "R2" | "R3" } | null> = {
     1: null,
     2: null,
     3: null,
@@ -69,54 +70,95 @@ export const getCurrentRunners = (
       ].includes(atBat.battingResult || "")
     ) {
       if (atBat.runnerAdvances && atBat.runnerAdvances.length > 0) {
-        atBat.runnerAdvances.forEach((advance) => {
-          if (advance.fromBase === 0 && !advance.out && !advance.scored) {
-            const toBase = advance.toBase;
-            if (toBase >= 1 && toBase <= 3) {
-              baseOccupied[toBase as 1 | 2 | 3] =
-                advance.runnerName || atBat.batterName;
+        // 進塁を fromBase の降順（3→2→1→0）で処理して、同時進塁を正しく処理
+        // これにより、後ろのランナーから先に処理され、前のランナーが進んだ後のベース状態が正しく反映される
+        const sortedAdvances = [...atBat.runnerAdvances].sort((a, b) => {
+          // 打者（fromBase === 0）は最後に処理
+          if (a.fromBase === 0) return 1;
+          if (b.fromBase === 0) return -1;
+          return b.fromBase - a.fromBase;
+        });
+
+        sortedAdvances.forEach((advance) => {
+          // 打者の進塁処理
+          if (advance.runnerId === "BR" || advance.fromBase === 0) {
+            if (!advance.out && !advance.scored && advance.toBase !== 4) {
+              const toBase = advance.toBase;
+              if (toBase >= 1 && toBase <= 3) {
+                const runnerName = advance.runnerName || atBat.batterName;
+                // 打者は新しいランナーなので、toBaseに応じたrunnerIdを割り当て
+                // ただし、既にそのベースにランナーがいる場合は上書きしない（エラーケース）
+                if (!baseOccupied[toBase as 1 | 2 | 3]) {
+                  baseOccupied[toBase as 1 | 2 | 3] = {
+                    name: runnerName,
+                    runnerId: `R${toBase}` as "R1" | "R2" | "R3",
+                  };
+                }
+              }
             }
-          }
-          if (advance.fromBase >= 1 && advance.fromBase <= 3) {
+          } else {
+            // 既存ランナーの進塁処理
             const fromBase = advance.fromBase as 1 | 2 | 3;
-            const runnerName = baseOccupied[fromBase];
-            if (runnerName && !advance.out) {
-              baseOccupied[fromBase] = null;
-              if (
-                !advance.scored &&
-                advance.toBase >= 1 &&
-                advance.toBase <= 3
-              ) {
-                baseOccupied[advance.toBase as 1 | 2 | 3] = runnerName;
+            const runnerId = advance.runnerId;
+            const runnerName = advance.runnerName;
+            
+            // runnerIdでランナーを特定
+            const currentRunnerOnBase = baseOccupied[fromBase];
+            if (currentRunnerOnBase && currentRunnerOnBase.runnerId === runnerId) {
+              // アウトの場合はベースから削除
+              if (advance.out) {
+                baseOccupied[fromBase] = null;
+              } else if (advance.scored || advance.toBase === 4) {
+                // 得点した場合はベースから削除
+                baseOccupied[fromBase] = null;
+              } else {
+                // 進塁した場合
+                const toBase = advance.toBase;
+                if (toBase >= 1 && toBase <= 3) {
+                  // 元のベースを空にする
+                  baseOccupied[fromBase] = null;
+                  // 新しいベースに移動（名前とrunnerIdを保持）
+                  // ただし、既に誰かいる場合は上書きしない（エラーケース）
+                  if (!baseOccupied[toBase as 1 | 2 | 3]) {
+                    baseOccupied[toBase as 1 | 2 | 3] = {
+                      name: runnerName || currentRunnerOnBase.name,
+                      runnerId: currentRunnerOnBase.runnerId, // runnerIdは変更しない
+                    };
+                  }
+                } else {
+                  // toBase が 4（本塁）の場合はベースから削除
+                  baseOccupied[fromBase] = null;
+                }
               }
             }
           }
         });
       } else {
+        // runnerAdvances がない場合のフォールバック処理
         if (atBat.battingResult === "single" && !baseOccupied[1])
-          baseOccupied[1] = atBat.batterName;
+          baseOccupied[1] = { name: atBat.batterName, runnerId: "R1" };
         else if (atBat.battingResult === "double" && !baseOccupied[2])
-          baseOccupied[2] = atBat.batterName;
+          baseOccupied[2] = { name: atBat.batterName, runnerId: "R2" };
         else if (atBat.battingResult === "triple" && !baseOccupied[3])
-          baseOccupied[3] = atBat.batterName;
+          baseOccupied[3] = { name: atBat.batterName, runnerId: "R3" };
         else if (
           (atBat.battingResult === "walk" ||
             atBat.battingResult === "hitByPitch") &&
           !baseOccupied[1]
         ) {
-          baseOccupied[1] = atBat.batterName;
+          baseOccupied[1] = { name: atBat.batterName, runnerId: "R1" };
         }
       }
     }
   });
 
-  Object.entries(baseOccupied).forEach(([base, name]) => {
-    if (name) {
+  Object.entries(baseOccupied).forEach(([base, runnerInfo]) => {
+    if (runnerInfo) {
       const b = Number(base) as 1 | 2 | 3;
       runners.push({
         base: b,
-        name,
-        runnerId: `R${b}` as "R1" | "R2" | "R3",
+        name: runnerInfo.name,
+        runnerId: runnerInfo.runnerId,
       });
     }
   });

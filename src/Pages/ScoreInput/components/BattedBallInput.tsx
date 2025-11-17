@@ -36,6 +36,7 @@ const POSITION_LABELS: Record<Position, string> = {
   LF: "左翼",
   CF: "中堅",
   RF: "右翼",
+  DH: "DH",
 };
 
 const HIT_TYPES = [
@@ -66,6 +67,22 @@ const BATTING_RESULTS = [
   { value: "fieldersChoice", label: "野選", color: "bg-indigo-600" },
 ] as const;
 
+type ErrorType = "catch" | "throw" | "FC";
+
+const sortByStepIndex = (sequence: DefensiveStep[]) =>
+  [...sequence].sort((a, b) => a.stepIndex - b.stepIndex);
+
+const getErrorLabel = (errorType: ErrorType) => {
+  if (errorType === "catch") return "捕球E";
+  if (errorType === "throw") return "送球E";
+  return "FC";
+};
+
+const getErrorColorClass = (errorType: ErrorType) => {
+  if (errorType === "FC") return "bg-orange-600";
+  return "bg-red-600";
+};
+
 export const BattedBallInput: React.FC<BattedBallInputProps> = ({
   selectedHitType,
   selectedHitDirection,
@@ -91,64 +108,63 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
 
   const handlePositionSelect = (pos: Position) => {
     const currentIndex = nextStepIndex;
+
     setDefensiveSequence((prev) => {
-      const newSequence = [...prev];
-      const positionStep: DefensiveStep = {
-        position: pos,
-        stepIndex: currentIndex,
-      };
-      newSequence.push(positionStep);
+      const newSequence: DefensiveStep[] = [
+        ...prev,
+        { position: pos, stepIndex: currentIndex },
+      ];
+
+      // 最初の守備位置だけ、投手側の state にも反映
       if (newSequence.length === 1) {
         onSetPosition(pos);
       }
+
       return newSequence;
     });
+
     setNextStepIndex((prev) => prev + 1);
   };
 
-  const handleErrorSelect = (errorType: "catch" | "throw" | "FC") => {
+  const handleErrorSelect = (errorType: ErrorType) => {
     setDefensiveSequence((prev) => {
       if (prev.length === 0) return prev;
-      const sortedSequence = [...prev].sort(
-        (a, b) => a.stepIndex - b.stepIndex
+
+      const sorted = sortByStepIndex(prev);
+
+      // 一番最後の「ポジションを持つステップ」を探す
+      const lastPositionStep = [...sorted]
+        .reverse()
+        .find((step) => step.position);
+
+      if (!lastPositionStep) return prev;
+
+      return prev.map((step) =>
+        step.stepIndex === lastPositionStep.stepIndex
+          ? { ...step, errorType }
+          : step
       );
-      let lastPositionIndex = -1;
-      for (let i = sortedSequence.length - 1; i >= 0; i--) {
-        if (sortedSequence[i].position) {
-          lastPositionIndex = i;
-          break;
-        }
-      }
-      if (lastPositionIndex === -1) return prev;
-      const newSequence = [...prev];
-      const targetStep = newSequence.find(
-        (step) => step.stepIndex === sortedSequence[lastPositionIndex].stepIndex
-      );
-      if (targetStep) {
-        targetStep.errorType = errorType;
-      }
-      return newSequence;
     });
   };
 
   const handleRemoveLast = () => {
     setDefensiveSequence((prev) => {
       if (prev.length === 0) return prev;
-      const sortedSequence = [...prev].sort(
-        (a, b) => a.stepIndex - b.stepIndex
-      );
-      const lastStep = sortedSequence[sortedSequence.length - 1];
+
+      const sorted = sortByStepIndex(prev);
+      const lastStep = sorted[sorted.length - 1];
+
+      // エラー付き守備ステップの場合はエラーだけ外す
       if (lastStep.errorType && lastStep.position) {
-        const newSequence = prev.map((step) => {
-          if (step.stepIndex === lastStep.stepIndex) {
-            const { errorType, ...rest } = step;
-            return rest;
-          }
-          return step;
+        return prev.map((step) => {
+          if (step.stepIndex !== lastStep.stepIndex) return step;
+          const { errorType, ...rest } = step;
+          return rest;
         });
-        return newSequence;
       }
-      setNextStepIndex((prev) => prev - 1);
+
+      // それ以外はステップ自体を削除し、stepIndex を1つ戻す
+      setNextStepIndex((prevIndex) => prevIndex - 1);
       return prev.filter((step) => step.stepIndex !== lastStep.stepIndex);
     });
   };
@@ -163,6 +179,8 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
     return "";
   };
 
+  const sortedDefensiveSequence = sortByStepIndex(defensiveSequence);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -176,6 +194,8 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
           </button>
         )}
       </div>
+
+      {/* 打球種別 */}
       <div className="mb-3">
         <div className="text-xs text-gray-400 mb-1">種類</div>
         <div className="grid grid-cols-4 gap-2">
@@ -193,6 +213,7 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
         </div>
       </div>
 
+      {/* 打球方向 */}
       {selectedHitType && (
         <div className="mb-3">
           <div className="text-xs text-gray-400 mb-1">打球方向</div>
@@ -216,6 +237,7 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
 
       {selectedHitType && (
         <>
+          {/* 守備位置選択 */}
           <div className="mb-3">
             <div className="text-xs text-gray-400 mb-1">
               守備の処理順にポジションを選択
@@ -233,6 +255,7 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
             </div>
           </div>
 
+          {/* エラー / FC 選択 */}
           <div className="mb-3">
             <div className="text-xs text-gray-400 mb-1">エラー/FCを選択</div>
             <div className="grid grid-cols-3 gap-2 mb-2">
@@ -257,56 +280,50 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
             </div>
           </div>
 
+          {/* 守備処理の表示 */}
           {defensiveSequence.length > 0 && (
             <div className="mb-3 p-2 bg-gray-800 rounded">
               <div className="text-xs text-gray-400 mb-1">選択された順番</div>
               <div className="flex flex-wrap items-center gap-1">
-                {[...defensiveSequence]
-                  .sort((a, b) => a.stepIndex - b.stepIndex)
-                  .map((step, idx, array) => {
-                    const hasError = step.errorType && step.position;
-                    const nextStep = array[idx + 1];
-                    const showArrow =
-                      idx < array.length - 1 &&
-                      (!hasError || nextStep?.position);
+                {sortedDefensiveSequence.map((step, idx, array) => {
+                  const hasError = step.errorType && step.position;
+                  const nextStep = array[idx + 1];
+                  const showArrow =
+                    idx < array.length - 1 && (!hasError || nextStep?.position);
 
-                    return (
-                      <React.Fragment key={idx}>
-                        {step.position && (
-                          <>
-                            <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600">
-                              {getStepLabel(step)}
-                            </span>
-                            {hasError && (
-                              <>
-                                <span className="text-white text-xs font-bold">
-                                  →
-                                </span>
-                                <span
-                                  className={`px-2 py-1 rounded text-xs font-bold ${
-                                    step.errorType === "FC"
-                                      ? "bg-orange-600"
-                                      : "bg-red-600"
-                                  }`}
-                                >
-                                  {step.errorType === "catch"
-                                    ? "捕球E"
-                                    : step.errorType === "throw"
-                                    ? "送球E"
-                                    : "FC"}
-                                </span>
-                              </>
-                            )}
-                            {showArrow && (
+                  return (
+                    <React.Fragment key={step.stepIndex}>
+                      {step.position && (
+                        <>
+                          <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600">
+                            {getStepLabel(step)}
+                          </span>
+
+                          {hasError && step.errorType && (
+                            <>
                               <span className="text-white text-xs font-bold">
                                 →
                               </span>
-                            )}
-                          </>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-bold ${getErrorColorClass(
+                                  step.errorType as ErrorType
+                                )}`}
+                              >
+                                {getErrorLabel(step.errorType as ErrorType)}
+                              </span>
+                            </>
+                          )}
+
+                          {showArrow && (
+                            <span className="text-white text-xs font-bold">
+                              →
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </div>
               <button
                 onClick={handleRemoveLast}
@@ -317,6 +334,7 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
             </div>
           )}
 
+          {/* 打撃結果 */}
           {defensiveSequence.length > 0 && (
             <div className="mt-4 border-t border-gray-700 pt-3">
               <h4 className="text-xs text-gray-400 mb-2">打撃結果を選択</h4>
@@ -326,8 +344,9 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
                     key={result.value}
                     onClick={() => {
                       setSelectedBattingResult(result.value as BattingResult);
-                      if (onBattingResultSelect)
+                      if (onBattingResultSelect) {
                         onBattingResultSelect(result.value as BattingResult);
+                      }
                     }}
                     className={`py-2 rounded-lg font-bold text-xs ${
                       selectedBattingResult === result.value
@@ -342,6 +361,7 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
             </div>
           )}
 
+          {/* カット / 挟殺 / 走者画面への遷移 */}
           {defensiveSequence.length > 0 && (
             <div className="mt-4 border-t border-gray-700 pt-3">
               <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
@@ -364,12 +384,6 @@ export const BattedBallInput: React.FC<BattedBallInputProps> = ({
                 >
                   走者
                 </button>
-                {/* <button
-                  onClick={onNavigateToResult}
-                  className="py-2 bg-red-600 rounded-lg font-bold text-xs"
-                >
-                  結果
-                </button> */}
               </div>
             </div>
           )}

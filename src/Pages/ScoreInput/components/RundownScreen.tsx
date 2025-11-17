@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import type { Position, RunnerInfo } from "../../../types/baseball";
 import { NavigationButtons } from "./NavigationButtons";
 
@@ -25,6 +25,9 @@ const POSITIONS: Position[] = [
   "RF",
 ];
 
+type RunnerId = RunnerInfo["runnerId"];
+type BasePath = "1-2" | "2-3" | "3-H";
+
 export const RundownScreen: React.FC<RundownScreenProps> = ({
   runners,
   onComplete,
@@ -36,21 +39,29 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
   canGoBack,
 }) => {
   const [defensiveSequence, setDefensiveSequence] = useState<Position[]>([]);
-  const [selectedRunner, setSelectedRunner] = useState<string>("");
-  const [selectedBasePath, setSelectedBasePath] = useState<string>("");
+  const [selectedRunner, setSelectedRunner] = useState<RunnerId | "">("");
+  const [selectedBasePath, setSelectedBasePath] = useState<BasePath | "">("");
+
+  const basePaths: BasePath[] = useMemo(() => ["1-2", "2-3", "3-H"], []);
 
   const handlePositionSelect = (pos: Position) => {
-    setDefensiveSequence((prev) => {
-      if (prev.includes(pos)) {
-        return prev.filter((p) => p !== pos);
-      }
-      return [...prev, pos];
-    });
+    setDefensiveSequence((prev) =>
+      prev.includes(pos) ? prev.filter((p) => p !== pos) : [...prev, pos]
+    );
   };
 
   const handleRemoveLast = () => {
     setDefensiveSequence((prev) => prev.slice(0, -1));
   };
+
+  const handleConfirm = () => {
+    if (defensiveSequence.length === 0 || !selectedRunner) return;
+    // 現状 onComplete の引数は positions と runnerId のみ（塁間は内部状態として保持）
+    onComplete(defensiveSequence, selectedRunner);
+  };
+
+  const hasRunners = runners.length > 0;
+  const canConfirm = defensiveSequence.length > 0 && !!selectedRunner;
 
   return (
     <div>
@@ -58,6 +69,7 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
         <h3 className="text-sm font-bold text-gray-300">挟殺</h3>
         {canGoBack && onBack && (
           <button
+            type="button"
             onClick={onBack}
             className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
           >
@@ -66,13 +78,14 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
         )}
       </div>
 
-      {runners.length > 0 && (
+      {hasRunners && (
         <div className="mb-3">
           <div className="text-xs text-gray-400 mb-1">走者を選択</div>
           <div className="grid grid-cols-3 gap-2 mb-3">
             {runners.map((runner) => (
               <button
                 key={runner.runnerId}
+                type="button"
                 onClick={() => setSelectedRunner(runner.runnerId)}
                 className={`py-2 rounded font-bold text-xs ${
                   selectedRunner === runner.runnerId
@@ -91,9 +104,10 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
         <div className="mb-3">
           <div className="text-xs text-gray-400 mb-1">塁間を選択</div>
           <div className="grid grid-cols-3 gap-2 mb-3">
-            {["1-2", "2-3", "3-H"].map((path) => (
+            {basePaths.map((path) => (
               <button
                 key={path}
+                type="button"
                 onClick={() => setSelectedBasePath(path)}
                 className={`py-2 rounded font-bold text-xs ${
                   selectedBasePath === path ? "bg-orange-600" : "bg-gray-700"
@@ -114,6 +128,7 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
           {POSITIONS.map((pos) => (
             <button
               key={pos}
+              type="button"
               onClick={() => handlePositionSelect(pos)}
               className={`py-2 rounded font-bold text-xs ${
                 defensiveSequence.includes(pos)
@@ -133,7 +148,7 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
           <div className="flex flex-wrap gap-1">
             {defensiveSequence.map((pos, idx) => (
               <span
-                key={idx}
+                key={`${pos}-${idx}`}
                 className="px-2 py-1 rounded text-xs font-bold bg-orange-600"
               >
                 {pos}
@@ -141,6 +156,7 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
             ))}
           </div>
           <button
+            type="button"
             onClick={handleRemoveLast}
             className="mt-2 text-xs text-red-400 underline"
           >
@@ -151,13 +167,15 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
 
       <div className="flex gap-2 mb-3">
         <button
-          onClick={() => onComplete(defensiveSequence, selectedRunner)}
-          className="flex-1 py-3 bg-orange-600 rounded-lg font-bold text-sm"
-          disabled={defensiveSequence.length === 0 || !selectedRunner}
+          type="button"
+          onClick={handleConfirm}
+          className="flex-1 py-3 bg-orange-600 rounded-lg font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!canConfirm}
         >
           確定
         </button>
         {/* <button
+          type="button"
           onClick={onNavigateToResult}
           className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
         >

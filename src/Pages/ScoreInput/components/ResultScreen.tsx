@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import type { RunnerInfo } from "../../../types/baseball";
 import { NavigationButtons } from "./NavigationButtons";
 
@@ -13,6 +13,8 @@ import { NavigationButtons } from "./NavigationButtons";
  *   AtBat.outsOrder?: Array<"batter" | "R1" | "R2" | "R3"> を保存する余地あり
  * - RunnerScreenのRunnerAdvance.outフラグと、ResultScreenでの選択結果が矛盾しないよう注意
  */
+
+type SimpleResult = "safe" | "out" | "tagOut";
 
 interface ResultScreenProps {
   runners: RunnerInfo[];
@@ -29,6 +31,23 @@ interface ResultScreenProps {
   canGoBack?: boolean;
 }
 
+interface TargetInfo {
+  id: string;
+  name: string;
+  label: string;
+}
+
+const getResultLabel = (result: SimpleResult): string => {
+  switch (result) {
+    case "safe":
+      return "セーフ";
+    case "out":
+      return "アウト";
+    case "tagOut":
+      return "タッチアウト";
+  }
+};
+
 export const ResultScreen: React.FC<ResultScreenProps> = ({
   runners,
   currentBatterName,
@@ -43,38 +62,44 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
 }) => {
   const [selectedRunnerIndex, setSelectedRunnerIndex] = useState<number>(0);
   const [runnerResults, setRunnerResults] = useState<
-    Record<string, "safe" | "out" | "tagOut" | null>
+    Record<string, SimpleResult | null>
   >({});
 
-  const allTargets: Array<{ id: string; name: string; label: string }> = [];
-  if (currentBatterName) {
-    allTargets.push({
-      id: "BR",
-      name: currentBatterName,
-      label: `打者: ${currentBatterName}`,
+  const allTargets: TargetInfo[] = useMemo(() => {
+    const targets: TargetInfo[] = [];
+
+    if (currentBatterName) {
+      targets.push({
+        id: "BR",
+        name: currentBatterName,
+        label: `打者: ${currentBatterName}`,
+      });
+    }
+
+    runners.forEach((runner) => {
+      targets.push({
+        id: runner.runnerId,
+        name: runner.name,
+        label: `${runner.base}塁走者: ${runner.name}`,
+      });
     });
-  }
-  runners.forEach((runner) => {
-    allTargets.push({
-      id: runner.runnerId,
-      name: runner.name,
-      label: `${runner.base}塁走者: ${runner.name}`,
-    });
-  });
+
+    return targets;
+  }, [currentBatterName, runners]);
 
   const currentTarget = allTargets[selectedRunnerIndex];
 
-  const handleSelectResult = (result: "safe" | "out" | "tagOut") => {
+  const handleSelectResult = (result: SimpleResult) => {
     if (!currentTarget) return;
 
-    setRunnerResults({
-      ...runnerResults,
+    setRunnerResults((prev) => ({
+      ...prev,
       [currentTarget.id]: result,
-    });
+    }));
 
-    if (selectedRunnerIndex < allTargets.length - 1) {
-      setSelectedRunnerIndex(selectedRunnerIndex + 1);
-    }
+    setSelectedRunnerIndex((prevIndex) =>
+      prevIndex < allTargets.length - 1 ? prevIndex + 1 : prevIndex
+    );
   };
 
   const allResultsSelected =
@@ -93,18 +118,25 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
 
     if (outCount === 0) {
       onConfirm("safe");
-    } else if (outCount === 1) {
+      return;
+    }
+
+    if (outCount === 1) {
       const outResult = Object.values(runnerResults).find(
         (r) => r === "out" || r === "tagOut"
       );
       onConfirm(outResult === "tagOut" ? "tagOut" : "out");
-    } else if (outCount === 2) {
+      return;
+    }
+
+    if (outCount === 2) {
       onConfirm("doublePlay");
     } else {
       onConfirm("triplePlay");
     }
   };
 
+  // 走者・打者が一人もいないケース（単純な safe / out / tagOut 選択）
   if (allTargets.length === 0) {
     return (
       <div>
@@ -112,6 +144,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           <h3 className="text-sm font-bold text-gray-300">結果を選択</h3>
           {canGoBack && onBack && (
             <button
+              type="button"
               onClick={onBack}
               className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
             >
@@ -119,20 +152,24 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
             </button>
           )}
         </div>
+
         <div className="grid grid-cols-3 gap-2 mb-3">
           <button
+            type="button"
             onClick={() => onConfirm("safe")}
             className="py-3 bg-green-600 rounded-lg font-bold text-sm"
           >
             セーフ
           </button>
           <button
+            type="button"
             onClick={() => onConfirm("out")}
             className="py-3 bg-red-600 rounded-lg font-bold text-sm"
           >
             アウト
           </button>
           <button
+            type="button"
             onClick={() => onConfirm("tagOut")}
             className="py-3 bg-orange-600 rounded-lg font-bold text-sm"
           >
@@ -143,6 +180,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         {onFinishPlay && (
           <div className="flex gap-2 mt-3">
             <button
+              type="button"
               onClick={onFinishPlay}
               className="flex-1 py-2 bg-green-600 rounded-lg font-bold text-xs"
             >
@@ -160,6 +198,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         <h3 className="text-sm font-bold text-gray-300">結果を選択</h3>
         {canGoBack && onBack && (
           <button
+            type="button"
             onClick={onBack}
             className="px-3 py-1 bg-gray-700 rounded-lg font-bold text-xs hover:bg-gray-600"
           >
@@ -179,6 +218,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           </div>
           <div className="grid grid-cols-3 gap-2 mb-3">
             <button
+              type="button"
               onClick={() => handleSelectResult("safe")}
               className={`py-3 rounded-lg font-bold text-sm ${
                 runnerResults[currentTarget.id] === "safe"
@@ -189,6 +229,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               セーフ
             </button>
             <button
+              type="button"
               onClick={() => handleSelectResult("out")}
               className={`py-3 rounded-lg font-bold text-sm ${
                 runnerResults[currentTarget.id] === "out"
@@ -199,6 +240,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               アウト
             </button>
             <button
+              type="button"
               onClick={() => handleSelectResult("tagOut")}
               className={`py-3 rounded-lg font-bold text-sm ${
                 runnerResults[currentTarget.id] === "tagOut"
@@ -223,28 +265,24 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
               return r === "safe" || r === "out" || r === "tagOut";
             })
             .map((target) => {
-              const result = runnerResults[target.id];
-              const resultLabel =
-                result === "safe"
-                  ? "セーフ"
-                  : result === "out"
-                  ? "アウト"
-                  : "タッチアウト";
+              const result = runnerResults[target.id] as SimpleResult;
               const targetIndex = allTargets.findIndex(
                 (t) => t.id === target.id
               );
+
               return (
-                <div
+                <button
                   key={target.id}
-                  className="text-xs mb-1 cursor-pointer hover:bg-gray-700 p-1 rounded"
+                  type="button"
+                  className="w-full text-left text-xs mb-1 cursor-pointer hover:bg-gray-700 p-1 rounded"
                   onClick={() => {
                     if (targetIndex >= 0) {
                       setSelectedRunnerIndex(targetIndex);
                     }
                   }}
                 >
-                  {target.label}: {resultLabel}
-                </div>
+                  {target.label}: {getResultLabel(result)}
+                </button>
               );
             })}
         </div>
@@ -253,6 +291,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
       {allResultsSelected && (
         <div className="mb-3">
           <button
+            type="button"
             onClick={handleConfirm}
             className="w-full py-3 bg-green-600 rounded-lg font-bold text-sm"
           >
@@ -271,6 +310,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
       {onFinishPlay && (
         <div className="flex gap-2 mt-3">
           <button
+            type="button"
             onClick={onFinishPlay}
             className="flex-1 py-2 bg-green-600 rounded-lg font-bold text-xs"
           >

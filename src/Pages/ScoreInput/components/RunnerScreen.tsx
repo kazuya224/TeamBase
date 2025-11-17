@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import type {
   RunnerInfo,
   Base,
@@ -6,6 +6,20 @@ import type {
   RunnerAdvanceReason,
 } from "../../../types/baseball";
 import { NavigationButtons } from "./NavigationButtons";
+import { RunnerSelection } from "./RunnerScreen/RunnerSelection";
+import { ToBaseSelection } from "./RunnerScreen/ToBaseSelection";
+import { AdvanceReasonSelection } from "./RunnerScreen/AdvanceReasonSelection";
+import { OutcomeSelection } from "./RunnerScreen/OutcomeSelection";
+import { AdvanceList } from "./RunnerScreen/AdvanceList";
+
+type RunnerKey = "BR" | "R1" | "R2" | "R3";
+
+type RunnerDecision = {
+  fromBase: Base;
+  toBase: Base | 4;
+  result: "safe" | "out" | "tagOut" | "appeal";
+  segmentReasons: Record<number, RunnerAdvanceReason>;
+};
 
 interface RunnerScreenProps {
   runners: RunnerInfo[];
@@ -22,32 +36,12 @@ interface RunnerScreenProps {
   onNavigateToRundownFromButtons?: () => void;
   onNavigateToRunnerFromButtons?: () => void;
   onNavigateToResultFromButtons?: () => void;
+  pendingAtBat?: {
+    runnerAdvances?: RunnerAdvance[];
+    battingResult?: string;
+  } | null;
+  selectedOption?: string | null;
 }
-
-const ADVANCE_REASONS: { value: RunnerAdvanceReason; label: string }[] = [
-  { value: "Hit", label: "安打" },
-  { value: "BB", label: "四球" },
-  { value: "HBP", label: "死球" },
-  { value: "SB", label: "盗塁" },
-  { value: "CS", label: "盗塁死" },
-  { value: "PO", label: "牽制死" },
-  { value: "WP", label: "暴投" },
-  { value: "PB", label: "捕逸" },
-  { value: "BK", label: "ボーク" },
-  { value: "DI", label: "無警戒進塁" },
-  { value: "E", label: "エラー" },
-  { value: "FC", label: "フィルダースチョイス" },
-  { value: "SF", label: "犠飛" },
-  { value: "SH", label: "犠打" },
-  // 妨害系: 具体的な種別を使用（汎用的な"Interference"は非推奨）
-  { value: "FielderInterference", label: "守備妨害" },
-  { value: "BatterInterference", label: "打撃妨害" },
-  { value: "RunnerInterference", label: "走塁妨害" },
-  { value: "TagUp", label: "タッグアップ" },
-  { value: "Overtake", label: "追い越し" },
-  { value: "AbandonBase", label: "離塁放棄" },
-  { value: "Other", label: "その他" },
-];
 
 export const RunnerScreen: React.FC<RunnerScreenProps> = ({
   runners,
@@ -64,140 +58,351 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
   onNavigateToRundownFromButtons,
   onNavigateToRunnerFromButtons,
   onNavigateToResultFromButtons,
+  pendingAtBat,
+  selectedOption,
 }) => {
-  const [selectedRunner, setSelectedRunner] = useState<string | "BR">("");
-  const [selectedToBase, setSelectedToBase] = useState<Base | null>(null);
-  const [segmentReasons, setSegmentReasons] = useState<
-    Record<number, RunnerAdvanceReason>
-  >({});
-  const [selectedOutcome, setSelectedOutcome] = useState<
-    "safe" | "out" | "tagOut" | null
-  >(null);
-  const [runnerAdvances, setRunnerAdvances] = useState<RunnerAdvance[]>([]);
+  const [selectedRunnerId, setSelectedRunnerId] = useState<RunnerKey | "">("");
+  const [runnerDecisions, setRunnerDecisions] = useState<
+    Record<RunnerKey, RunnerDecision | undefined>
+  >({} as Record<RunnerKey, RunnerDecision | undefined>);
 
-  useEffect(() => {
-    setSelectedOutcome(null);
-    setSegmentReasons({});
-  }, [selectedRunner, selectedToBase]);
+  // 全ランナーリスト（打者 + 既存走者）
+  const allRunners = useMemo(() => {
+    const list: Array<{ runnerId: RunnerKey; name: string; fromBase: Base }> =
+      [];
+    if (currentBatterName) {
+      list.push({ runnerId: "BR", name: currentBatterName, fromBase: 0 });
+    }
+    runners.forEach((runner) => {
+      list.push({
+        runnerId: runner.runnerId as RunnerKey,
+        name: runner.name,
+        fromBase: runner.base as Base,
+      });
+    });
+    return list;
+  }, [runners, currentBatterName]);
 
-  const getBaseSegments = (): number[] => {
+  // 初期進塁理由を取得
+  const getInitialReason = (): RunnerAdvanceReason | null => {
+    if (pendingAtBat?.battingResult) {
+      const result = pendingAtBat.battingResult;
+      if (
+        result === "single" ||
+        result === "double" ||
+        result === "triple" ||
+        result === "homerun"
+      ) {
+        return "Hit";
+      }
+      if (result === "walk") {
+        return "BB";
+      }
+      if (result === "hitByPitch") {
+        return "HBP";
+      }
+      if (result === "sacrificeFly") {
+        return "SF";
+      }
+      if (result === "sacrificeBunt") {
+        return "SH";
+      }
+      if (result === "error") {
+        return "E";
+      }
+      if (result === "fieldersChoice") {
+        return "FC";
+      }
+    }
+
+    if (selectedOption) {
+      const optionMap: Record<string, RunnerAdvanceReason> = {
+        WP: "WP",
+        PB: "PB",
+        ボーク: "BK",
+        打撃妨害: "BatterInterference",
+        守備妨害: "FielderInterference",
+        走塁妨害: "RunnerInterference",
+      };
+      return optionMap[selectedOption] || null;
+    }
+
+    return null;
+  };
+
+  const initialReason = getInitialReason();
+
+  // 選択中のランナーの情報
+  const selectedRunner = useMemo(() => {
+    if (!selectedRunnerId) return null;
+    return allRunners.find((r) => r.runnerId === selectedRunnerId);
+  }, [selectedRunnerId, allRunners]);
+
+  // 選択中のランナーの決定情報
+  const currentDecision = useMemo(() => {
+    if (!selectedRunnerId) return null;
+    return runnerDecisions[selectedRunnerId];
+  }, [selectedRunnerId, runnerDecisions]);
+
+  // 選択中のランナーの進塁先（UI表示用）
+  const selectedToBase = useMemo(() => {
+    return currentDecision?.toBase ?? null;
+  }, [currentDecision]);
+
+  // 選択中のランナーの結果（UI表示用）
+  const selectedOutcome = useMemo(() => {
+    return currentDecision?.result ?? null;
+  }, [currentDecision]);
+
+  // 選択中のランナーのセグメント理由（UI表示用）
+  const segmentReasons = useMemo(() => {
+    return currentDecision?.segmentReasons ?? {};
+  }, [currentDecision]);
+
+  // 選択中のランナーのベースセグメント
+  const baseSegments = useMemo(() => {
     if (!selectedRunner || selectedToBase === null) return [];
-    const fromBase =
-      selectedRunner === "BR" ? 0 : parseInt(selectedRunner.replace("R", ""));
+    const fromBase = selectedRunner.fromBase;
     const segments: number[] = [];
     for (let i = fromBase; i < selectedToBase; i++) {
       segments.push(i);
     }
     return segments;
-  };
+  }, [selectedRunner, selectedToBase]);
 
-  const baseSegments = getBaseSegments();
+  // ランナー選択時に、既存の決定情報を読み込む
+  useEffect(() => {
+    if (selectedRunnerId && runnerDecisions[selectedRunnerId]) {
+      // 既存の決定情報がある場合は何もしない（既に反映されている）
+      return;
+    }
+  }, [selectedRunnerId, runnerDecisions]);
 
-  const handleAddAdvance = () => {
-    if (!selectedRunner || selectedToBase === null || !selectedOutcome) return;
+  // 進塁先を選択
+  const handleToBaseSelect = (toBase: Base) => {
+    if (!selectedRunnerId || !selectedRunner) return;
 
-    const fromBase: Base =
-      selectedRunner === "BR"
-        ? 0
-        : (parseInt(selectedRunner.replace("R", "")) as Base);
-    const runner =
-      selectedRunner === "BR"
-        ? {
-            runnerId: "BR" as const,
-            base: 0 as Base,
-            name: currentBatterName || "",
-          }
-        : runners.find((r) => r.runnerId === selectedRunner);
+    const fromBase = selectedRunner.fromBase;
+    const segments: number[] = [];
+    for (let i = fromBase; i < toBase; i++) {
+      segments.push(i);
+    }
 
-    if (!runner) return;
-
-    const allReasonsSelected = baseSegments.every(
-      (segment) => segmentReasons[segment] !== undefined
-    );
-    if (!allReasonsSelected) return;
-
-    const isOut = selectedOutcome === "out" || selectedOutcome === "tagOut";
-    const advances: RunnerAdvance[] = [];
-    let currentBase = fromBase;
-    for (const segment of baseSegments) {
-      const nextBase = (segment + 1) as Base;
-      advances.push({
-        runnerId: runner.runnerId,
-        fromBase: currentBase as Base,
-        toBase: nextBase,
-        reason: segmentReasons[segment],
-        scored: nextBase === 4 && selectedOutcome === "safe",
-        out: isOut && nextBase === selectedToBase,
-        outcome: nextBase === selectedToBase ? selectedOutcome : undefined,
-        runnerName: runner.name,
+    // 初期理由がある場合は全セグメントに適用
+    const newSegmentReasons: Record<number, RunnerAdvanceReason> = {};
+    if (initialReason) {
+      segments.forEach((segment) => {
+        newSegmentReasons[segment] = initialReason;
       });
-      currentBase = nextBase;
     }
 
-    setRunnerAdvances((prev) => [...prev, ...advances]);
-    setSelectedRunner("");
-    setSelectedToBase(null);
-    setSegmentReasons({});
-    setSelectedOutcome(null);
+    setRunnerDecisions((prev) => ({
+      ...prev,
+      [selectedRunnerId]: {
+        fromBase: selectedRunner.fromBase,
+        toBase,
+        result: prev[selectedRunnerId]?.result ?? ("safe" as const),
+        segmentReasons: prev[selectedRunnerId]?.segmentReasons
+          ? { ...prev[selectedRunnerId].segmentReasons, ...newSegmentReasons }
+          : newSegmentReasons,
+      },
+    }));
   };
 
-  const handleRemoveAdvance = (index: number) => {
-    setRunnerAdvances((prev) => prev.filter((_, i) => i !== index));
+  // 結果を選択
+  const handleOutcomeSelect = (
+    outcome: "safe" | "out" | "tagOut" | "appeal"
+  ) => {
+    if (!selectedRunnerId || !selectedRunner) return;
+
+    setRunnerDecisions((prev) => ({
+      ...prev,
+      [selectedRunnerId]: {
+        fromBase: selectedRunner.fromBase,
+        toBase:
+          prev[selectedRunnerId]?.toBase ??
+          ((selectedRunner.fromBase + 1) as Base),
+        result: outcome,
+        segmentReasons: prev[selectedRunnerId]?.segmentReasons ?? {},
+      },
+    }));
   };
 
-  const handleComplete = () => {
-    if (runnerAdvances.length > 0) {
-      onComplete(runnerAdvances);
-    }
-  };
+  // セグメント理由を変更
+  const handleSegmentReasonChange = (
+    segment: number,
+    reason: RunnerAdvanceReason
+  ) => {
+    if (!selectedRunnerId) return;
 
-  const getBaseLabel = (base: number): string => {
-    if (base === 0 || base === 4) return "本塁";
-    return `${base}塁`;
-  };
+    setRunnerDecisions((prev) => {
+      const current = prev[selectedRunnerId];
+      if (!current) return prev;
 
-  const handleOptionClick = (reason: RunnerAdvanceReason) => {
-    if (selectedRunner && selectedToBase !== null) {
-      const baseSegments = getBaseSegments();
-      const newSegmentReasons: Record<number, RunnerAdvanceReason> = {
-        ...segmentReasons,
+      return {
+        ...prev,
+        [selectedRunnerId]: {
+          ...current,
+          segmentReasons: {
+            ...current.segmentReasons,
+            [segment]: reason,
+          },
+        },
       };
-      baseSegments.forEach((segment) => {
-        if (!newSegmentReasons[segment]) {
-          newSegmentReasons[segment] = reason;
-        }
-      });
-      setSegmentReasons(newSegmentReasons);
-    }
+    });
   };
 
-  // 同じ走者の連続した進塁をグループ化
-  const groupedAdvances = (() => {
-    const groups: RunnerAdvance[][] = [];
-    let currentGroup: RunnerAdvance[] = [];
-    let lastRunnerId: string | null = null;
-    let lastToBase: Base | null = null;
+  // 全員分の入力が完了しているかチェック
+  const allCompleted = useMemo(() => {
+    return allRunners.every((runner) => {
+      const decision = runnerDecisions[runner.runnerId];
+      if (!decision) return false;
+      if (decision.toBase === undefined) return false;
+      if (decision.result === undefined) return false;
 
-    runnerAdvances.forEach((advance) => {
-      if (
-        advance.runnerId !== lastRunnerId ||
-        advance.fromBase !== lastToBase
-      ) {
-        if (currentGroup.length > 0) {
-          groups.push([...currentGroup]);
+      // アピール以外の場合、セグメント理由がすべて設定されている必要がある
+      if (decision.result !== "appeal") {
+        const fromBase = runner.fromBase;
+        const toBase = decision.toBase;
+        const segments: number[] = [];
+        for (let i = fromBase; i < toBase; i++) {
+          segments.push(i);
         }
-        currentGroup = [advance];
-      } else {
-        currentGroup.push(advance);
+        return segments.every(
+          (segment) => decision.segmentReasons[segment] !== undefined
+        );
       }
-      lastRunnerId = advance.runnerId;
-      lastToBase = advance.toBase;
+
+      return true;
     });
-    if (currentGroup.length > 0) {
-      groups.push(currentGroup);
-    }
-    return groups;
-  })();
+  }, [allRunners, runnerDecisions]);
+
+  // 「進塁を追加」ボタンを押したとき
+  const handleComplete = () => {
+    if (!allCompleted) return;
+
+    const advances: RunnerAdvance[] = [];
+
+    allRunners.forEach((runner) => {
+      const decision = runnerDecisions[runner.runnerId];
+      if (!decision) return;
+
+      const fromBase = runner.fromBase;
+      const toBase = decision.toBase;
+
+      // アピールアウトの場合
+      if (decision.result === "appeal") {
+        advances.push({
+          runnerId: runner.runnerId,
+          fromBase,
+          toBase: fromBase,
+          reason: "Appeal",
+          scored: false,
+          out: true,
+          outcome: "out",
+          runnerName: runner.name,
+        });
+        return;
+      }
+
+      // 通常の進塁の場合
+      const segments: number[] = [];
+      for (let i = fromBase; i < toBase; i++) {
+        segments.push(i);
+      }
+
+      const isOut = decision.result === "out" || decision.result === "tagOut";
+      let currentBase = fromBase;
+
+      segments.forEach((segment) => {
+        const nextBase = (segment + 1) as Base;
+        advances.push({
+          runnerId: runner.runnerId,
+          fromBase: currentBase as Base,
+          toBase: nextBase,
+          reason: decision.segmentReasons[segment],
+          scored: nextBase === 4 && decision.result === "safe",
+          out: isOut && nextBase === toBase,
+          outcome:
+            nextBase === toBase
+              ? decision.result === "appeal"
+                ? "out"
+                : (decision.result as "safe" | "out" | "tagOut")
+              : undefined,
+          runnerName: runner.name,
+        });
+        currentBase = nextBase;
+      });
+    });
+
+    onComplete(advances);
+  };
+
+  // 表示用の進塁リスト（全ランナーの決定を表示）
+  const displayAdvances = useMemo(() => {
+    const advances: RunnerAdvance[] = [];
+
+    allRunners.forEach((runner) => {
+      const decision = runnerDecisions[runner.runnerId];
+      if (!decision) return;
+
+      const fromBase = runner.fromBase;
+      const toBase = decision.toBase;
+
+      if (decision.result === "appeal") {
+        advances.push({
+          runnerId: runner.runnerId,
+          fromBase,
+          toBase: fromBase,
+          reason: "Appeal",
+          scored: false,
+          out: true,
+          outcome: "out",
+          runnerName: runner.name,
+        });
+        return;
+      }
+
+      const segments: number[] = [];
+      for (let i = fromBase; i < toBase; i++) {
+        segments.push(i);
+      }
+
+      const isOut = decision.result === "out" || decision.result === "tagOut";
+      let currentBase = fromBase;
+
+      segments.forEach((segment) => {
+        const nextBase = (segment + 1) as Base;
+        advances.push({
+          runnerId: runner.runnerId,
+          fromBase: currentBase as Base,
+          toBase: nextBase,
+          reason: decision.segmentReasons[segment],
+          scored: nextBase === 4 && decision.result === "safe",
+          out: isOut && nextBase === toBase,
+          outcome:
+            nextBase === toBase
+              ? decision.result === "appeal"
+                ? "out"
+                : (decision.result as "safe" | "out" | "tagOut")
+              : undefined,
+          runnerName: runner.name,
+        });
+        currentBase = nextBase;
+      });
+    });
+
+    return advances;
+  }, [allRunners, runnerDecisions]);
+
+  // 進塁を削除（ランナーごとの決定を削除）
+  const handleRemoveAdvance = (runnerId: RunnerKey) => {
+    setRunnerDecisions((prev) => {
+      const newDecisions = { ...prev };
+      delete newDecisions[runnerId];
+      return newDecisions;
+    });
+  };
 
   return (
     <div>
@@ -213,284 +418,108 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         )}
       </div>
 
-      <div className="mb-3">
-        <div className="text-xs text-gray-400 mb-1">該当する走者を選択</div>
-        <div className="grid grid-cols-4 gap-2 mb-2">
-          {currentBatterName && (
-            <button
-              onClick={() => setSelectedRunner("BR")}
-              className={`py-2 rounded font-bold text-xs ${
-                selectedRunner === "BR" ? "bg-green-600" : "bg-gray-700"
-              }`}
-            >
-              打者: {currentBatterName}
-            </button>
-          )}
-          {runners.map((runner) => (
-            <button
-              key={runner.runnerId}
-              onClick={() => setSelectedRunner(runner.runnerId)}
-              className={`py-2 rounded font-bold text-xs ${
-                selectedRunner === runner.runnerId
-                  ? "bg-green-600"
-                  : "bg-gray-700"
-              }`}
-            >
-              {runner.base}塁: {runner.name}
-            </button>
-          ))}
-        </div>
-      </div>
+      <RunnerSelection
+        runners={runners}
+        currentBatterName={currentBatterName}
+        selectedRunner={selectedRunnerId}
+        onRunnerSelect={(id) => setSelectedRunnerId(id as RunnerKey)}
+      />
 
       {selectedRunner && (
-        <div className="mb-3">
-          <div className="text-xs text-gray-400 mb-1">進塁先の塁を選択</div>
-          <div className="grid grid-cols-4 gap-2 mb-2">
-            {[1, 2, 3, 4].map((base) => {
-              const fromBase =
-                selectedRunner === "BR"
-                  ? 0
-                  : parseInt(selectedRunner.replace("R", ""));
-              if (base <= fromBase) return null;
-              return (
-                <button
-                  key={base}
-                  onClick={() => setSelectedToBase(base as Base)}
-                  className={`py-2 rounded font-bold text-xs ${
-                    selectedToBase === base ? "bg-blue-600" : "bg-gray-700"
-                  }`}
-                >
-                  {base === 4 ? "本塁" : `${base}塁`}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <>
+          <ToBaseSelection
+            selectedRunner={selectedRunnerId}
+            selectedToBase={selectedToBase}
+            onToBaseSelect={handleToBaseSelect}
+          />
+
+          <AdvanceReasonSelection
+            selectedRunner={selectedRunnerId}
+            selectedToBase={selectedToBase}
+            baseSegments={baseSegments}
+            segmentReasons={segmentReasons}
+            onSegmentReasonChange={handleSegmentReasonChange}
+          />
+
+          <OutcomeSelection
+            selectedRunner={selectedRunnerId}
+            selectedToBase={selectedToBase}
+            baseSegments={baseSegments}
+            segmentReasons={segmentReasons}
+            selectedOutcome={selectedOutcome}
+            onOutcomeSelect={handleOutcomeSelect}
+            onAddAdvance={() => {
+              // このボタンは使わない（全員分の入力が終わったら「進塁を追加」ボタンを表示）
+            }}
+          />
+        </>
       )}
 
-      {selectedRunner && selectedToBase !== null && baseSegments.length > 0 && (
-        <div className="mb-3">
-          <div className="text-xs text-gray-400 mb-2">
-            各塁間の進塁理由を選択
-          </div>
-          {baseSegments.map((segment) => (
-            <div key={segment} className="mb-2">
-              <div className="text-xs text-gray-500 mb-1">
-                {getBaseLabel(segment)} → {getBaseLabel(segment + 1)}間
-              </div>
-              <select
-                value={segmentReasons[segment] || ""}
-                onChange={(e) =>
-                  setSegmentReasons({
-                    ...segmentReasons,
-                    [segment]: e.target.value as RunnerAdvanceReason,
-                  })
-                }
-                className="w-full py-2 px-3 bg-gray-700 rounded-lg text-white text-sm"
-              >
-                <option value="">選択してください</option>
-                {ADVANCE_REASONS.map((reason) => (
-                  <option key={reason.value} value={reason.value}>
-                    {reason.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {selectedRunner &&
-        selectedToBase !== null &&
-        baseSegments.length > 0 &&
-        baseSegments.every(
-          (segment) => segmentReasons[segment] !== undefined
-        ) && (
-          <div className="mb-3">
-            <div className="text-xs text-gray-400 mb-1">結果を選択</div>
-            <div className="grid grid-cols-3 gap-2 mb-2">
-              <button
-                onClick={() => setSelectedOutcome("safe")}
-                className={`py-2 rounded-lg font-bold text-xs ${
-                  selectedOutcome === "safe" ? "bg-green-600" : "bg-gray-700"
-                }`}
-              >
-                セーフ
-              </button>
-              <button
-                onClick={() => setSelectedOutcome("out")}
-                className={`py-2 rounded-lg font-bold text-xs ${
-                  selectedOutcome === "out" ? "bg-red-600" : "bg-gray-700"
-                }`}
-              >
-                アウト
-              </button>
-              <button
-                onClick={() => setSelectedOutcome("tagOut")}
-                className={`py-2 rounded-lg font-bold text-xs ${
-                  selectedOutcome === "tagOut" ? "bg-orange-600" : "bg-gray-700"
-                }`}
-              >
-                タッチアウト
-              </button>
-            </div>
-            {selectedOutcome && (
-              <button
-                onClick={handleAddAdvance}
-                className="w-full py-2 bg-green-600 rounded-lg font-bold text-xs"
-              >
-                進塁を追加
-              </button>
-            )}
-          </div>
-        )}
-
-      {runnerAdvances.length > 0 && (
+      {/* 全ランナーの決定を表示 */}
+      {displayAdvances.length > 0 && (
         <div className="mb-3 p-2 bg-gray-800 rounded">
           <div className="text-xs text-gray-400 mb-1">選択された進塁</div>
-          {groupedAdvances.map((advances, groupIdx) => {
-            const firstAdvance = advances[0];
-            const lastAdvance = advances[advances.length - 1];
-            const fromBaseLabel = getBaseLabel(firstAdvance.fromBase);
-            const toBaseLabel = getBaseLabel(lastAdvance.toBase);
-            const outcomeLabel =
-              lastAdvance.outcome === "safe"
-                ? "セーフ"
-                : lastAdvance.outcome === "out"
-                ? "アウト"
-                : lastAdvance.outcome === "tagOut"
-                ? "タッチアウト"
-                : "";
+          {allRunners
+            .filter((runner) => runnerDecisions[runner.runnerId])
+            .map((runner) => {
+              const decision = runnerDecisions[runner.runnerId]!;
+              const fromBaseLabel =
+                runner.fromBase === 0
+                  ? "打席"
+                  : runner.fromBase === 4
+                  ? "本塁"
+                  : `${runner.fromBase}塁`;
+              const toBaseLabel =
+                decision.toBase === 4 ? "本塁" : `${decision.toBase}塁`;
+              const outcomeLabel =
+                decision.result === "safe"
+                  ? "セーフ"
+                  : decision.result === "out"
+                  ? "アウト"
+                  : decision.result === "tagOut"
+                  ? "タッチアウト"
+                  : "アピール";
 
-            const firstIndex = runnerAdvances.findIndex(
-              (a) =>
-                a.runnerId === firstAdvance.runnerId &&
-                a.fromBase === firstAdvance.fromBase &&
-                a.toBase === firstAdvance.toBase
-            );
-
-            return (
-              <div
-                key={groupIdx}
-                className="flex items-center justify-between mb-2 p-2 bg-gray-700 rounded"
-              >
-                <div className="flex-1">
-                  <div className="text-xs">
-                    {firstAdvance.runnerName}: {fromBaseLabel} → {toBaseLabel}
-                    {outcomeLabel && ` - ${outcomeLabel}`}
-                    {lastAdvance.scored && " [得点]"}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {advances
-                      .map(
-                        (a) =>
-                          `${getBaseLabel(a.fromBase)}→${getBaseLabel(
-                            a.toBase
-                          )}(${
-                            ADVANCE_REASONS.find((r) => r.value === a.reason)
-                              ?.label
-                          })`
-                      )
-                      .join(", ")}
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    const indices: number[] = [];
-                    runnerAdvances.forEach((advance, idx) => {
-                      if (
-                        advance.runnerId === firstAdvance.runnerId &&
-                        idx >= firstIndex &&
-                        idx < firstIndex + advances.length
-                      ) {
-                        indices.push(idx);
-                      }
-                    });
-                    indices.reverse().forEach((idx) => {
-                      handleRemoveAdvance(idx);
-                    });
-                  }}
-                  className="text-xs text-red-400 underline ml-2"
+              return (
+                <div
+                  key={runner.runnerId}
+                  className="flex items-center justify-between mb-2 p-2 bg-gray-700 rounded"
                 >
-                  削除
-                </button>
-              </div>
-            );
-          })}
+                  <div className="flex-1">
+                    <div className="text-xs">
+                      {runner.name}: {fromBaseLabel} → {toBaseLabel} -{" "}
+                      {outcomeLabel}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveAdvance(runner.runnerId)}
+                    className="text-xs text-red-400 underline ml-2"
+                  >
+                    削除
+                  </button>
+                </div>
+              );
+            })}
         </div>
       )}
 
-      <div className="flex gap-2 mb-3">
+      {/* 全員分の入力が終わったら「進塁を追加」ボタンを表示 */}
+      {allRunners.length > 0 && (
         <button
           onClick={handleComplete}
-          className="flex-1 py-3 bg-green-600 rounded-lg font-bold text-sm"
-          disabled={runnerAdvances.length === 0}
+          disabled={!allCompleted}
+          className={`w-full py-3 rounded-lg font-bold text-sm ${
+            allCompleted
+              ? "bg-green-600 hover:bg-green-700"
+              : "bg-gray-700 opacity-50 cursor-not-allowed"
+          }`}
         >
-          確定
+          進塁を追加
         </button>
-        {/* <button
-          onClick={() => {
-            if (runnerAdvances.length === 0) {
-              if (
-                window.confirm(
-                  "走者の進塁が入力されていません。このまま結果画面に進みますか？"
-                )
-              ) {
-                onNavigateToResult();
-              }
-            } else {
-              onNavigateToResult();
-            }
-          }}
-          className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
-        >
-          結果へ
-        </button> */}
-      </div>
+      )}
 
-      <div className="mt-4 border-t border-gray-700 pt-3">
-        <h4 className="text-xs text-gray-400 mb-2">オプション</h4>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => handleOptionClick("FielderInterference")}
-            className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
-          >
-            守備妨害
-          </button>
-          <button
-            onClick={() => handleOptionClick("BatterInterference")}
-            className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
-          >
-            打撃妨害
-          </button>
-          <button
-            onClick={() => handleOptionClick("RunnerInterference")}
-            className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
-          >
-            走塁妨害
-          </button>
-          <button
-            onClick={() => handleOptionClick("TagUp")}
-            className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
-          >
-            タッグアップ
-          </button>
-          <button
-            onClick={() => handleOptionClick("Overtake")}
-            className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
-          >
-            追い越し
-          </button>
-          <button
-            onClick={() => handleOptionClick("AbandonBase")}
-            className="py-2 bg-gray-700 rounded-lg font-bold text-xs"
-          >
-            離塁放棄
-          </button>
-        </div>
-      </div>
-
-      {!showNavigationButtons && (
+      {/* 進塁が追加されていない場合のみナビゲーションボタンを表示 */}
+      {!showNavigationButtons && displayAdvances.length === 0 && (
         <NavigationButtons
           onNavigateToCutPlay={onNavigateToCutPlay}
           onNavigateToRundown={onNavigateToRundown}
@@ -498,7 +527,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
           onNavigateToResult={onNavigateToResult}
         />
       )}
-      {showNavigationButtons && (
+      {showNavigationButtons && displayAdvances.length === 0 && (
         <div className="mt-4 border-t border-gray-700 pt-3">
           <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
           <div className="grid grid-cols-4 gap-2">
@@ -520,12 +549,6 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
             >
               走者
             </button>
-            {/* <button
-              onClick={onNavigateToResultFromButtons}
-              className="py-2 bg-red-600 rounded-lg font-bold text-xs"
-            >
-              結果
-            </button> */}
           </div>
         </div>
       )}

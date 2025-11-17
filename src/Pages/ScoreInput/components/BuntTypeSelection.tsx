@@ -7,6 +7,12 @@ interface BuntTypeSelectionProps {
   canGoBack?: boolean;
 }
 
+const BUNT_TYPES: { value: BuntType; label: string; className: string }[] = [
+  { value: "normal", label: "通常", className: "bg-teal-600" },
+  { value: "safety", label: "セーフティ", className: "bg-green-600" },
+  { value: "squeeze", label: "スーサイド", className: "bg-orange-600" },
+];
+
 export const BuntTypeSelection: React.FC<BuntTypeSelectionProps> = ({
   onSelectBuntType,
   onBack,
@@ -25,27 +31,18 @@ export const BuntTypeSelection: React.FC<BuntTypeSelectionProps> = ({
           </button>
         )}
       </div>
+
       <div className="grid grid-cols-2 gap-2 mb-3">
-        <button
-          onClick={() => onSelectBuntType("normal")}
-          className="py-3 bg-teal-600 rounded-lg font-bold text-sm"
-        >
-          通常
-        </button>
-        <button
-          onClick={() => onSelectBuntType("safety")}
-          className="py-3 bg-green-600 rounded-lg font-bold text-sm"
-        >
-          セーフティ
-        </button>
-        <button
-          onClick={() => onSelectBuntType("squeeze")}
-          className="py-3 bg-orange-600 rounded-lg font-bold text-sm"
-        >
-          スーサイド
-        </button>
+        {BUNT_TYPES.map((bunt) => (
+          <button
+            key={bunt.value}
+            onClick={() => onSelectBuntType(bunt.value)}
+            className={`py-3 rounded-lg font-bold text-sm ${bunt.className}`}
+          >
+            {bunt.label}
+          </button>
+        ))}
       </div>
     </div>
   );
 };
-

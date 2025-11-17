@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import type {
   Game,
   Inning,
@@ -16,6 +17,8 @@ import type {
   Position,
   BuntType,
 } from "../types/baseball";
+import type { GameMeta } from "../types/gameMeta";
+import { useScreenFlow } from "../hooks/useScreenFlow";
 import {
   getOrCreateInning,
   getCurrentRunners as getCurrentRunnersUtil,
@@ -29,19 +32,141 @@ import {
 } from "../utils/gameUtils";
 import { InputPanel } from "./ScoreInput/components/InputPanel";
 import { RunnerAdvanceModal } from "./ScoreInput/components/RunnerAdvanceModal";
+import { SubstitutionModal } from "./ScoreInput/components/SubstitutionModal";
+import { DroppedThirdStrikeModal } from "./ScoreInput/components/DroppedThirdStrikeModal";
+import { GameEndModal } from "./ScoreInput/components/GameEndModal";
+import { GameMetaForm } from "../Components/GameMeta/GameMetaForm";
+import { GameHeader } from "./ScoreInput/components/GameHeader";
+import { Scoreboard } from "./ScoreInput/components/Scoreboard";
+import { BatterInfoBar } from "./ScoreInput/components/BatterInfoBar";
+import { BaseballField } from "./ScoreInput/components/BaseballField";
+
+// =====================================================
+// ★ 共通定数・ヘルパーをコンポーネント外に移動
+// =====================================================
+
+const DEFAULT_LINEUP = [
+  "打者1",
+  "打者2",
+  "打者3",
+  "打者4",
+  "打者5",
+  "打者6",
+  "打者7",
+  "打者8",
+  "打者9",
+];
+
+// lineup生成を共通化
+function buildLineupFromGameMeta(
+  meta: GameMeta | null,
+  currentTopBottom: "top" | "bottom"
+): string[] {
+  if (!meta) return [...DEFAULT_LINEUP];
+
+  const currentTeam =
+    currentTopBottom === "top" ? meta.awayTeam : meta.homeTeam;
+
+  const sortedLineup = [...currentTeam.lineup].sort(
+    (a, b) => a.battingOrder - b.battingOrder
+  );
+
+  const allPlayers = new Map<string, string>();
+  currentTeam.benchPlayers.forEach((player) => {
+    allPlayers.set(player.id, player.name || "");
+  });
+
+  return sortedLineup.map((entry) => {
+    const playerName = allPlayers.get(entry.playerId);
+    return playerName || `打者${entry.battingOrder}`;
+  });
+}
+
+// 打撃結果 → アウト数
+function getOutsFromBattingResult(result: BattingResult): number {
+  if (result === "strikeout") return 1;
+  if (result === "doublePlay") return 2;
+  if (result === "triplePlay") return 3;
+  if (result === "sacrificeBunt" || result === "sacrificeFly") return 1;
+  return 0;
+}
+
+// ヒット時の進塁ロジックを共通化
+function buildHitAdvances(
+  result: BattingResult,
+  batterName: string,
+  runners: RunnerInfo[]
+): RunnerAdvance[] {
+  const advances: RunnerAdvance[] = [];
+
+  const baseDeltaMap: Record<"single" | "double" | "triple", number> = {
+    single: 1,
+    double: 2,
+    triple: 3,
+  };
+
+  if (result === "homerun") {
+    // 打者
+    advances.push({
+      runnerId: "BR",
+      fromBase: 0,
+      toBase: 4,
+      reason: "Hit",
+      scored: true,
+      out: false,
+      runnerName: batterName,
+    });
+    // 走者
+    runners.forEach((runner) => {
+      advances.push({
+        runnerId: runner.runnerId,
+        fromBase: runner.base as Base,
+        toBase: 4,
+        reason: "Hit",
+        scored: true,
+        out: false,
+        runnerName: runner.name,
+      });
+    });
+    return advances;
+  }
+
+  if (result in baseDeltaMap) {
+    const delta = baseDeltaMap[result as "single" | "double" | "triple"];
+
+    advances.push({
+      runnerId: "BR",
+      fromBase: 0,
+      toBase: delta as Base,
+      reason: "Hit",
+      scored: delta === 4,
+      out: false,
+      runnerName: batterName,
+    });
+
+    runners.forEach((runner) => {
+      const newBase = Math.min(runner.base + delta, 4) as Base;
+      advances.push({
+        runnerId: runner.runnerId,
+        fromBase: runner.base as Base,
+        toBase: newBase,
+        reason: "Hit",
+        scored: newBase === 4,
+        out: false,
+        runnerName: runner.name,
+      });
+    });
+  }
+
+  return advances;
+}
 
 const ScoreInput: React.FC = () => {
-  const [lineup] = useState<string[]>([
-    "打者1",
-    "打者2",
-    "打者3",
-    "打者4",
-    "打者5",
-    "打者6",
-    "打者7",
-    "打者8",
-    "打者9",
-  ]);
+  const navigate = useNavigate();
+
+  const [gameMeta, setGameMeta] = useState<GameMeta | null>(null);
+
+  const [lineup, setLineup] = useState<string[]>([...DEFAULT_LINEUP]);
 
   const [gameState, setGameState] = useState<{
     game: Game;
@@ -51,8 +176,8 @@ const ScoreInput: React.FC = () => {
     game: {
       id: "1",
       date: new Date().toISOString().split("T")[0],
-      homeTeam: "巨人",
-      awayTeam: "阪神",
+      homeTeam: "",
+      awayTeam: "",
       innings: [],
       currentInning: 1,
       currentTopBottom: "top",
@@ -63,6 +188,30 @@ const ScoreInput: React.FC = () => {
     history: [],
     historyIndex: -1,
   });
+
+  // ============================================
+  // lineup & 基本情報同期用 useEffect を 1つに集約
+  // ============================================
+  useEffect(() => {
+    if (!gameMeta) return;
+
+    const newLineup = buildLineupFromGameMeta(
+      gameMeta,
+      gameState.game.currentTopBottom
+    );
+
+    setLineup(newLineup);
+    setGameState((prev) => ({
+      ...prev,
+      game: {
+        ...prev.game,
+        homeTeam: gameMeta.homeTeam.name || prev.game.homeTeam,
+        awayTeam: gameMeta.awayTeam.name || prev.game.awayTeam,
+        date: gameMeta.gameInfo.date || prev.game.date,
+        lineup: newLineup,
+      },
+    }));
+  }, [gameMeta, gameState.game.currentTopBottom]);
 
   const [currentBatterIndex, setCurrentBatterIndex] = useState(0);
   const [currentOuts, setCurrentOuts] = useState(0);
@@ -81,42 +230,26 @@ const ScoreInput: React.FC = () => {
 
   const [isRunnerModalOpen, setIsRunnerModalOpen] = useState(false);
   const [lastAtBatBatterName, setLastAtBatBatterName] = useState<string>("");
+  const [isSubstitutionModalOpen, setIsSubstitutionModalOpen] = useState(false);
+  const [isDroppedThirdStrikeModalOpen, setIsDroppedThirdStrikeModalOpen] =
+    useState(false);
+  const [pendingStrikeoutPitch, setPendingStrikeoutPitch] = useState<{
+    result: PitchResult;
+    count: { balls: number; strikes: number };
+  } | null>(null);
+  const [isGameEndModalOpen, setIsGameEndModalOpen] = useState(false);
 
-  const [currentScreen, setCurrentScreen] = useState<ScreenType>("pitch");
-  const [screenHistory, setScreenHistory] = useState<ScreenType[]>([]);
-
-  // 画面遷移を管理する関数（履歴を記録）
-  const navigateToScreen = (screen: ScreenType) => {
-    setScreenHistory((prev) => [...prev, currentScreen]);
-    setCurrentScreen(screen);
-  };
-
-  // 一つ前の画面に戻る関数
-  const goBack = () => {
-    if (screenHistory.length > 0) {
-      const previousScreen = screenHistory[screenHistory.length - 1];
-      setScreenHistory((prev) => prev.slice(0, -1));
-      setCurrentScreen(previousScreen);
-    } else {
-      // 履歴がない場合はpitch画面に戻る
-      setCurrentScreen("pitch");
-    }
-  };
-
-  const inputStep =
-    currentScreen === "batting"
-      ? "batted"
-      : currentScreen === "result"
-      ? "result"
-      : currentScreen === "buntType"
-      ? "buntType"
-      : "pitch";
-  const setInputStep = (step: "pitch" | "batted" | "result" | "buntType") => {
-    if (step === "batted") setCurrentScreen("batting");
-    else if (step === "result") setCurrentScreen("result");
-    else if (step === "buntType") setCurrentScreen("buntType");
-    else setCurrentScreen("pitch");
-  };
+  const {
+    currentScreen,
+    setCurrentScreen,
+    screenHistory,
+    setScreenHistory,
+    navigateToScreen,
+    goBack,
+    inputStep,
+    setInputStep,
+    canGoBack,
+  } = useScreenFlow();
 
   const [selectedHitDirection, setSelectedHitDirection] = useState<
     HitDirection | ""
@@ -131,7 +264,6 @@ const ScoreInput: React.FC = () => {
 
   const [pendingAtBat, setPendingAtBat] = useState<AtBat | null>(null);
 
-  // 現在のイニング取得
   const getCurrentInning = useCallback((): Inning => {
     return getOrCreateInning(
       gameState.game,
@@ -142,7 +274,6 @@ const ScoreInput: React.FC = () => {
     );
   }, [gameState.game, currentOuts]);
 
-  // 現在の走者取得
   const getCurrentRunners = useCallback((): RunnerInfo[] => {
     const currentInning = getCurrentInning();
     return getCurrentRunnersUtil(currentInning);
@@ -163,30 +294,32 @@ const ScoreInput: React.FC = () => {
     return getTeamErrors(gameState.game.innings, topBottom);
   };
 
-  // 振り逃げ条件判定（1塁不占有 or 2アウト）
   const canDroppedThirdStrike = useCallback((): boolean => {
     const runners = getCurrentRunners();
     const hasRunnerOnFirst = runners.some((r) => r.base === 1);
     return !hasRunnerOnFirst || currentOuts >= 2;
   }, [getCurrentRunners, currentOuts]);
 
-  // インフィールドフライ条件判定
   const checkInfieldFlyCondition = useCallback((): boolean => {
     const runners = getCurrentRunners();
-    const runnerBases = runners.map((r) => r.base).sort();
-    const isIFCondition =
-      ((currentOuts === 0 || currentOuts === 1) &&
-        runnerBases.length === 2 &&
-        runnerBases.includes(1) &&
-        runnerBases.includes(2)) ||
-      (runnerBases.length === 2 &&
-        runnerBases.includes(1) &&
-        runnerBases.includes(3)) ||
-      runnerBases.length === 3;
-    return isIFCondition;
+    const bases = runners.map((r) => r.base);
+    const outs = currentOuts;
+
+    // 2アウト以上ならインフィールドフライは成立しない
+    if (outs >= 2) return false;
+
+    const baseSet = new Set(bases);
+    const has1 = baseSet.has(1);
+    const has2 = baseSet.has(2);
+    const has3 = baseSet.has(3);
+
+    // 1・2塁 または 満塁のみ
+    const isFirstAndSecond = has1 && has2 && !has3;
+    const isBasesLoaded = has1 && has2 && has3;
+
+    return isFirstAndSecond || isBasesLoaded;
   }, [getCurrentRunners, currentOuts]);
 
-  // 強制進塁連鎖計算（四球/死球/申告敬遠時）
   const calculateForcedAdvancesUtil = useCallback(
     (batterToBase: Base): RunnerAdvance[] => {
       const runners = getCurrentRunners();
@@ -195,47 +328,32 @@ const ScoreInput: React.FC = () => {
     [getCurrentRunners]
   );
 
-  // 四球/申告敬遠のAtBatを作成する共通ヘルパー
+  // 四球AtBat共通ヘルパー
+  // 四球 / 死球 AtBat 共通ヘルパー
   const createWalkAtBat = useCallback(
     (
       pitches: Array<{
         result: PitchResult;
         count: { balls: number; strikes: number };
       }>,
-      reason: RunnerAdvanceReason = "BB"
+      reason: RunnerAdvanceReason = "BB" // "BB" or "HBP"
     ): AtBat => {
       const currentBatter = lineup[currentBatterIndex];
-      const forcedAdvances = calculateForcedAdvancesUtil(1);
 
-      const batterAdvance: RunnerAdvance = {
-        runnerId: "BR",
-        fromBase: 0,
-        toBase: 1,
-        reason,
-        scored: false,
-        out: false,
-        runnerName: currentBatter,
-      };
-
-      const allAdvances = [batterAdvance, ...forcedAdvances];
-      const scoredCount = allAdvances.filter(
-        (a) => a.scored || a.toBase === 4
-      ).length;
-
+      // RunnerScreenでユーザーが入力するため、空配列で初期化
       return {
         batterName: currentBatter,
-        battingResult: "walk",
+        battingResult: reason === "HBP" ? "hitByPitch" : "walk",
         pitches,
         outs: 0,
-        rbis: scoredCount,
-        runnerAdvances: allAdvances,
+        rbis: 0, // RBIs は handleSaveRunnerAdvances で再計算
+        runnerAdvances: [], // 空配列で初期化、RunnerScreenでユーザーが入力
         timestamp: new Date().toISOString(),
       };
     },
-    [lineup, currentBatterIndex, calculateForcedAdvancesUtil]
+    [lineup, currentBatterIndex]
   );
 
-  // 投球結果処理
   const handlePitchResult = (result: PitchResult) => {
     let newStrikes = currentAtBat.strikes;
     let newBalls = currentAtBat.balls;
@@ -247,30 +365,16 @@ const ScoreInput: React.FC = () => {
     ) {
       newStrikes++;
       if (newStrikes >= 3) {
-        if (canDroppedThirdStrike()) {
-          navigateToScreen("runner");
-          setPendingAtBat({
-            batterName: lineup[currentBatterIndex],
-            battingResult: "strikeout",
-            pitches: [
-              ...currentAtBat.pitches,
-              { result, count: { balls: newBalls, strikes: newStrikes } },
-            ],
-            outs: 0,
-            rbis: 0,
-            droppedThirdStrike: true,
-            strikeoutType: "droppedThird",
-          });
-          return;
-        } else {
-          completeAtBat("strikeout");
-          return;
-        }
+        setPendingStrikeoutPitch({
+          result,
+          count: { balls: newBalls, strikes: newStrikes },
+        });
+        setIsDroppedThirdStrikeModalOpen(true);
+        return;
       }
     } else if (result === "ball") {
       newBalls++;
       if (newBalls >= 4) {
-        // 四球: 共通ヘルパーを使用してAtBatを作成し、saveAtBatWithPendingで打者進行とアウト処理を完結
         const atBat = createWalkAtBat(
           [
             ...currentAtBat.pitches,
@@ -278,7 +382,9 @@ const ScoreInput: React.FC = () => {
           ],
           "BB"
         );
-        saveAtBatWithPending(atBat);
+        setPendingAtBat(atBat);
+        setLastAtBatBatterName(lineup[currentBatterIndex]);
+        navigateToScreen("runner");
         resetAtBatInputs();
         return;
       }
@@ -295,22 +401,21 @@ const ScoreInput: React.FC = () => {
         setCurrentScreen("runner");
       }
     } else if (result === "hitByPitch") {
-      // 死球: 打者(BR)の進塁を含めてRunnerAdvanceModalで処理
-      const advances = calculateForcedAdvancesUtil(1);
-      setLastAtBatBatterName(lineup[currentBatterIndex]);
+      const currentBatter = lineup[currentBatterIndex];
+      setLastAtBatBatterName(currentBatter);
       setPendingAtBat({
-        batterName: lineup[currentBatterIndex],
+        batterName: currentBatter,
         battingResult: "hitByPitch",
         pitches: [
           ...currentAtBat.pitches,
           { result, count: { balls: newBalls, strikes: newStrikes } },
         ],
         outs: 0,
-        rbis: 0,
-        runnerAdvances: advances,
+        rbis: 0, // ★ RBIs は handleSaveRunnerAdvances で最終決定する前提
+        runnerAdvances: [], // 空配列で初期化、RunnerScreenでユーザーが入力
       });
-      setIsRunnerModalOpen(true);
-      setRunnerActionType(""); // 汎用モーダルとして開く
+      navigateToScreen("runner");
+      setRunnerActionType("");
       return;
     } else if (result === "hit") {
       navigateToScreen("batting");
@@ -335,14 +440,41 @@ const ScoreInput: React.FC = () => {
     });
   };
 
-  // 打席完了処理
+  const handleDroppedThirdStrikeSelect = (isDropped: boolean) => {
+    if (!pendingStrikeoutPitch) return;
+
+    setIsDroppedThirdStrikeModalOpen(false);
+
+    if (isDropped) {
+      navigateToScreen("runner");
+      setPendingAtBat({
+        batterName: lineup[currentBatterIndex],
+        battingResult: "strikeout",
+        pitches: [...currentAtBat.pitches, pendingStrikeoutPitch],
+        outs: 0,
+        rbis: 0,
+        droppedThirdStrike: true,
+        strikeoutType: "droppedThird",
+      });
+    } else {
+      const atBat: AtBat = {
+        batterName: lineup[currentBatterIndex],
+        battingResult: "strikeout",
+        pitches: [...currentAtBat.pitches, pendingStrikeoutPitch],
+        outs: 1,
+        rbis: 0,
+        timestamp: new Date().toISOString(),
+      };
+      saveAtBatWithPending(atBat);
+      resetAtBatInputs();
+    }
+
+    setPendingStrikeoutPitch(null);
+  };
+
   const completeAtBat = (result: BattingResult) => {
     const currentBatter = lineup[currentBatterIndex];
-    let outs = 0;
-    if (result === "strikeout") outs = 1;
-    else if (result === "doublePlay") outs = 2;
-    else if (result === "triplePlay") outs = 3;
-    else if (result === "sacrificeBunt" || result === "sacrificeFly") outs = 1;
+    const outs = getOutsFromBattingResult(result); // ★ 共通関数で簡略化
 
     const atBat: AtBat = {
       batterName: currentBatter,
@@ -368,9 +500,9 @@ const ScoreInput: React.FC = () => {
         "hitByPitch",
       ].includes(result)
     ) {
-      saveAtBatWithPending(atBat, false);
+      setPendingAtBat(atBat);
       setLastAtBatBatterName(currentBatter);
-      setIsRunnerModalOpen(true);
+      navigateToScreen("runner");
     } else {
       saveAtBatWithPending(atBat);
     }
@@ -436,37 +568,57 @@ const ScoreInput: React.FC = () => {
 
   const handleSaveRunnerAdvances = (advances: RunnerAdvance[]) => {
     const currentInning = getCurrentInning();
-    const currentBatter = lastAtBatBatterName;
+    const currentBatter = lastAtBatBatterName || pendingAtBat?.batterName;
 
+    // ★ pendingAtBat があるパターン（フォアボール・死球・ヒットなど）
     if (pendingAtBat) {
-      const scoredCount = advances.filter((a) => a.scored).length;
-      const updatedAtBat = {
+      // 得点: scored === true または toBase === 4（本塁到達）
+      const scoredCount = advances.filter(
+        (a) => a.scored || a.toBase === 4
+      ).length;
+      const runnerOuts = advances.filter((a) => a.out).length;
+
+      // pendingAtBatを更新して保存
+      const updatedAtBat: AtBat = {
         ...pendingAtBat,
-        batterName: pendingAtBat.batterName || currentBatter,
+        batterName: pendingAtBat.batterName || currentBatter || "",
         runnerAdvances: advances,
         rbis: scoredCount,
+        outs: (pendingAtBat.outs || 0) + runnerOuts,
       };
 
-      const hasOuts = advances.some((a) => a.out) || updatedAtBat.outs > 0;
-      if (hasOuts) {
-        setPendingAtBat(updatedAtBat);
-        setCurrentScreen("result");
-        setIsRunnerModalOpen(false);
-        return;
-      }
+      // AtBatを保存
+      saveAtBatWithPending(updatedAtBat, true);
 
-      saveAtBatWithPending(updatedAtBat);
+      // 打者カウントの進行
+      const newOuts = currentOuts + updatedAtBat.outs;
+      if (newOuts >= 3) {
+        nextInning();
+      } else {
+        advanceBatter();
+      }
+      setCurrentOuts(newOuts % 3);
+
+      // 状態をリセット
       setPendingAtBat(null);
-      setIsRunnerModalOpen(false);
       setLastAtBatBatterName("");
       setCurrentScreen("pitch");
+      resetAtBatInputs();
       return;
     }
 
+    // ★ ここから下は既存の「pendingAtBat がない」パターン（今までのロジックをそのまま）
     if (!currentBatter) {
       setIsRunnerModalOpen(false);
       return;
     }
+
+    // 共通で使う値
+    // 得点: scored === true または toBase === 4（本塁到達）
+    const scoredCount = advances.filter(
+      (a) => a.scored || a.toBase === 4
+    ).length;
+    const runnerOuts = advances.filter((a) => a.out).length;
 
     const updatedAtBats = [...currentInning.atBats];
     const lastIndex = updatedAtBats.length - 1;
@@ -475,9 +627,12 @@ const ScoreInput: React.FC = () => {
       lastIndex >= 0 &&
       updatedAtBats[lastIndex].batterName === currentBatter
     ) {
-      const scoredCount = advances.filter((a) => a.scored).length;
-      const runnerOuts = advances.filter((a) => a.out).length;
       const lastAtBat = updatedAtBats[lastIndex];
+      const lastOutsBefore = lastAtBat.outs || 0;
+      const lastScoredBefore =
+        lastAtBat.runnerAdvances?.filter((a) => a.scored || a.toBase === 4)
+          .length || 0;
+
       updatedAtBats[lastIndex] = {
         ...lastAtBat,
         runnerAdvances: advances,
@@ -485,12 +640,13 @@ const ScoreInput: React.FC = () => {
       };
 
       const outsThisPlay = (lastAtBat.outs || 0) + runnerOuts;
-      const newOuts = currentOuts + outsThisPlay;
+      const newOuts = currentOuts + (outsThisPlay - lastOutsBefore);
+      const newScore = currentInning.score + (scoredCount - lastScoredBefore);
 
       const updatedInning = {
         ...currentInning,
         atBats: updatedAtBats,
-        score: currentInning.score + scoredCount,
+        score: newScore,
         outs: newOuts % 3,
       };
 
@@ -507,6 +663,7 @@ const ScoreInput: React.FC = () => {
     setIsRunnerModalOpen(false);
     setLastAtBatBatterName("");
     setCurrentScreen("pitch");
+    resetAtBatInputs();
   };
 
   const handleUndo = () => {
@@ -520,7 +677,6 @@ const ScoreInput: React.FC = () => {
         historyIndex: prev.historyIndex - 1,
       };
 
-      // Undo後にcurrentOutsを再計算
       const currentInning = newGame.innings.find(
         (i) =>
           i.inningNumber === newGame.currentInning &&
@@ -546,7 +702,6 @@ const ScoreInput: React.FC = () => {
         historyIndex: prev.historyIndex + 1,
       };
 
-      // Redo後にcurrentOutsを再計算
       const currentInning = newGame.innings.find(
         (i) =>
           i.inningNumber === newGame.currentInning &&
@@ -582,116 +737,26 @@ const ScoreInput: React.FC = () => {
     setCurrentBatterIndex(0);
   };
 
-  // 打撃結果選択時の処理
+  // ★ ヒット系の進塁処理を共通関数で短縮
   const handleBattingResultSelect = (result: BattingResult) => {
     const currentBatter = lineup[currentBatterIndex];
-    let outs = 0;
-    let runnerAdvances: RunnerAdvance[] = [];
-
-    if (result === "strikeout") outs = 1;
-    else if (result === "doublePlay") outs = 2;
-    else if (result === "triplePlay") outs = 3;
-    else if (result === "sacrificeBunt" || result === "sacrificeFly") outs = 1;
-
+    const outs = getOutsFromBattingResult(result);
     const runners = getCurrentRunners();
 
-    if (result === "single") {
-      runnerAdvances.push({
-        runnerId: "BR",
-        fromBase: 0,
-        toBase: 1,
-        reason: "Hit",
-        scored: false,
-        out: false,
-        runnerName: currentBatter,
-      });
-      runners.forEach((runner) => {
-        const newBase = Math.min(runner.base + 1, 4);
-        runnerAdvances.push({
-          runnerId: runner.runnerId,
-          fromBase: runner.base as Base,
-          toBase: newBase as Base,
-          reason: "Hit",
-          scored: newBase === 4,
-          out: false,
-          runnerName: runner.name,
-        });
-      });
-    } else if (result === "double") {
-      runnerAdvances.push({
-        runnerId: "BR",
-        fromBase: 0,
-        toBase: 2,
-        reason: "Hit",
-        scored: false,
-        out: false,
-        runnerName: currentBatter,
-      });
-      runners.forEach((runner) => {
-        const newBase = Math.min(runner.base + 2, 4);
-        runnerAdvances.push({
-          runnerId: runner.runnerId,
-          fromBase: runner.base as Base,
-          toBase: newBase as Base,
-          reason: "Hit",
-          scored: newBase === 4,
-          out: false,
-          runnerName: runner.name,
-        });
-      });
-    } else if (result === "triple") {
-      runnerAdvances.push({
-        runnerId: "BR",
-        fromBase: 0,
-        toBase: 3,
-        reason: "Hit",
-        scored: false,
-        out: false,
-        runnerName: currentBatter,
-      });
-      runners.forEach((runner) => {
-        const newBase = Math.min(runner.base + 3, 4);
-        runnerAdvances.push({
-          runnerId: runner.runnerId,
-          fromBase: runner.base as Base,
-          toBase: newBase as Base,
-          reason: "Hit",
-          scored: newBase === 4,
-          out: false,
-          runnerName: runner.name,
-        });
-      });
-    } else if (result === "homerun") {
-      runnerAdvances.push({
-        runnerId: "BR",
-        fromBase: 0,
-        toBase: 4,
-        reason: "Hit",
-        scored: true,
-        out: false,
-        runnerName: currentBatter,
-      });
-      runners.forEach((runner) => {
-        runnerAdvances.push({
-          runnerId: runner.runnerId,
-          fromBase: runner.base as Base,
-          toBase: 4,
-          reason: "Hit",
-          scored: true,
-          out: false,
-          runnerName: runner.name,
-        });
-      });
-    }
-
-    const scoredCount = runnerAdvances.filter((a) => a.scored).length;
+    const runnerAdvances =
+      result === "single" ||
+      result === "double" ||
+      result === "triple" ||
+      result === "homerun"
+        ? buildHitAdvances(result, currentBatter, runners)
+        : [];
 
     const atBat: AtBat = {
       batterName: currentBatter,
       battingResult: result,
       pitches: currentAtBat.pitches,
       outs,
-      rbis: scoredCount,
+      rbis: 0, // ★ RBIs は handleSaveRunnerAdvances で最終決定する前提
       hitDirection: selectedHitDirection || undefined,
       hitType: selectedHitType || undefined,
       position: selectedPosition || undefined,
@@ -702,7 +767,6 @@ const ScoreInput: React.FC = () => {
     setPendingAtBat(atBat);
   };
 
-  // プレー終了ボタンの処理
   const handleFinishPlay = () => {
     if (pendingAtBat) {
       saveAtBatWithPending(pendingAtBat, true);
@@ -727,17 +791,242 @@ const ScoreInput: React.FC = () => {
       "baseballGame",
       JSON.stringify(gameState.game, null, 2)
     );
+    localStorage.setItem(
+      "baseballGameState",
+      JSON.stringify({
+        game: gameState.game,
+        history: gameState.history,
+        historyIndex: gameState.historyIndex,
+        currentBatterIndex,
+        currentOuts,
+        currentAtBat,
+        currentScreen,
+        screenHistory,
+      })
+    );
     alert("保存しました");
   };
 
+  const handleGameEnd = () => {
+    setIsGameEndModalOpen(true);
+  };
+
+  const handleGameEndConfirm = (endTime: string | null) => {
+    setIsGameEndModalOpen(false);
+
+    if (gameMeta) {
+      const updatedGameMeta = {
+        ...gameMeta,
+        gameInfo: {
+          ...gameMeta.gameInfo,
+          endTime: endTime !== null ? endTime : "",
+        },
+      };
+      setGameMeta(updatedGameMeta);
+      localStorage.setItem("gameMeta", JSON.stringify(updatedGameMeta));
+    }
+    handleSave();
+    alert("試合を終了しました。");
+    navigate("/records");
+  };
+
+  const handleSubstitution = (substitution: {
+    team: "home" | "away";
+    type: "batter" | "runner" | "defense" | "defenseSwap";
+    originalPlayerId: string;
+    newPlayerId: string;
+    battingOrder?: number;
+    base?: Base;
+    position?: Position;
+    fromPosition?: Position;
+    toPosition?: Position;
+  }) => {
+    if (!gameMeta) return;
+
+    const teamKey = substitution.team === "home" ? "homeTeam" : "awayTeam";
+    const team = gameMeta[teamKey];
+
+    const updateLineupNames = (updatedMeta: GameMeta) => {
+      const newLineupNames = buildLineupFromGameMeta(
+        updatedMeta,
+        gameState.game.currentTopBottom
+      );
+      setLineup(newLineupNames);
+      setGameState((prev) => ({
+        ...prev,
+        game: {
+          ...prev.game,
+          lineup: newLineupNames,
+        },
+      }));
+      localStorage.setItem("gameMeta", JSON.stringify(updatedMeta));
+    };
+
+    if (substitution.type === "batter") {
+      if (substitution.newPlayerId) {
+        const newLineup = team.lineup.map((entry) =>
+          entry.battingOrder === substitution.battingOrder
+            ? { ...entry, playerId: substitution.newPlayerId }
+            : entry
+        );
+        const updatedGameMeta: GameMeta = {
+          ...gameMeta,
+          [teamKey]: {
+            ...team,
+            lineup: newLineup,
+          },
+        };
+        setGameMeta(updatedGameMeta);
+        updateLineupNames(updatedGameMeta);
+      }
+      alert("打者交代を記録しました。");
+    } else if (substitution.type === "runner") {
+      // 走者交代の実装
+      const runnerIndex = team.lineup.findIndex(
+        (entry) => entry.playerId === substitution.originalPlayerId
+      );
+
+      if (runnerIndex === -1) {
+        alert("交代対象の走者がラインナップ内に見つかりません");
+        setIsSubstitutionModalOpen(false);
+        return;
+      }
+
+      const newLineup = team.lineup.map((entry, idx) =>
+        idx === runnerIndex
+          ? { ...entry, playerId: substitution.newPlayerId }
+          : entry
+      );
+
+      const updatedGameMeta: GameMeta = {
+        ...gameMeta,
+        [teamKey]: {
+          ...team,
+          lineup: newLineup,
+        },
+      };
+
+      setGameMeta(updatedGameMeta);
+      updateLineupNames(updatedGameMeta);
+
+      alert("走者交代を記録しました。");
+      setIsSubstitutionModalOpen(false);
+      return;
+    } else if (substitution.type === "defense") {
+      if (!substitution.position || !substitution.newPlayerId) {
+        alert("守備位置と交代後の選手を選択してください");
+        setIsSubstitutionModalOpen(false);
+        return;
+      }
+
+      const originalIndex = team.lineup.findIndex(
+        (entry) => entry.position === substitution.position
+      );
+
+      if (originalIndex === -1) {
+        alert("指定した守備位置に選手が見つかりません");
+        setIsSubstitutionModalOpen(false);
+        return;
+      }
+
+      const newLineup = team.lineup.map((entry, idx) =>
+        idx === originalIndex
+          ? { ...entry, playerId: substitution.newPlayerId }
+          : entry
+      );
+
+      const updatedGameMeta: GameMeta = {
+        ...gameMeta,
+        [teamKey]: {
+          ...team,
+          lineup: newLineup,
+        },
+      };
+
+      setGameMeta(updatedGameMeta);
+      updateLineupNames(updatedGameMeta);
+
+      alert("守備交代を記録しました。");
+      setIsSubstitutionModalOpen(false);
+      return;
+    } else if (substitution.type === "defenseSwap") {
+      if (!substitution.fromPosition || !substitution.toPosition) {
+        alert("入れ替える守備位置を2つ選択してください");
+        setIsSubstitutionModalOpen(false);
+        return;
+      }
+
+      const fromIndex = team.lineup.findIndex(
+        (entry) => entry.position === substitution.fromPosition
+      );
+      const toIndex = team.lineup.findIndex(
+        (entry) => entry.position === substitution.toPosition
+      );
+
+      if (fromIndex === -1 || toIndex === -1) {
+        alert("指定した守備位置に選手が見つかりません");
+        setIsSubstitutionModalOpen(false);
+        return;
+      }
+
+      const newLineup = [...team.lineup];
+      const fromEntry = newLineup[fromIndex];
+      const toEntry = newLineup[toIndex];
+      newLineup[fromIndex] = { ...fromEntry, playerId: toEntry.playerId };
+      newLineup[toIndex] = { ...toEntry, playerId: fromEntry.playerId };
+
+      const updatedGameMeta: GameMeta = {
+        ...gameMeta,
+        [teamKey]: {
+          ...team,
+          lineup: newLineup,
+        },
+      };
+
+      setGameMeta(updatedGameMeta);
+      updateLineupNames(updatedGameMeta);
+
+      alert("守備位置を入れ替えました。");
+      setIsSubstitutionModalOpen(false);
+      return;
+    }
+
+    setIsSubstitutionModalOpen(false);
+  };
+
+  // gameMetaの復元
   useEffect(() => {
-    const saved = localStorage.getItem("baseballGame");
-    if (saved) {
+    const savedGameMeta = localStorage.getItem("gameMeta");
+    if (savedGameMeta) {
+      try {
+        const loadedGameMeta = JSON.parse(savedGameMeta);
+        if (
+          loadedGameMeta.gameInfo?.endTime &&
+          loadedGameMeta.gameInfo.endTime.trim() !== ""
+        ) {
+          setGameMeta(null);
+          localStorage.removeItem("gameMeta");
+          localStorage.removeItem("baseballGame");
+          localStorage.removeItem("baseballGameState");
+          return;
+        }
+        setGameMeta(loadedGameMeta);
+      } catch (e) {
+        console.error("Failed to load gameMeta", e);
+      }
+    }
+  }, []);
+
+  // 試合状態の復元
+  useEffect(() => {
+    const savedGameState = localStorage.getItem("baseballGameState");
+
+    const loadLegacyGame = () => {
+      const saved = localStorage.getItem("baseballGame");
+      if (!saved) return;
       try {
         const loadedGame = JSON.parse(saved);
         setGameState((prev) => ({ ...prev, game: loadedGame }));
-
-        // ロード後にcurrentOutsを同期
         const currentInning = loadedGame.innings.find(
           (i: Inning) =>
             i.inningNumber === loadedGame.currentInning &&
@@ -747,11 +1036,99 @@ const ScoreInput: React.FC = () => {
           const recalculatedOuts = recalculateOuts(currentInning.atBats);
           setCurrentOuts(recalculatedOuts);
         }
-      } catch (e) {
-        console.error("Failed to load game data", e);
+      } catch (e2) {
+        console.error("Failed to load game data", e2);
       }
+    };
+
+    if (savedGameState) {
+      try {
+        const loadedState = JSON.parse(savedGameState);
+        setGameState({
+          game: loadedState.game,
+          history: loadedState.history || [],
+          historyIndex: loadedState.historyIndex || -1,
+        });
+        setCurrentBatterIndex(loadedState.currentBatterIndex || 0);
+        setCurrentOuts(loadedState.currentOuts || 0);
+        setCurrentAtBat(
+          loadedState.currentAtBat || { pitches: [], strikes: 0, balls: 0 }
+        );
+        setCurrentScreen(loadedState.currentScreen || "pitch");
+        setScreenHistory(loadedState.screenHistory || []);
+
+        const currentInning = loadedState.game.innings.find(
+          (i: Inning) =>
+            i.inningNumber === loadedState.game.currentInning &&
+            i.topBottom === loadedState.game.currentTopBottom
+        );
+        if (currentInning) {
+          const recalculatedOuts = recalculateOuts(currentInning.atBats);
+          setCurrentOuts(recalculatedOuts);
+        }
+      } catch (e) {
+        console.error("Failed to load game state", e);
+        loadLegacyGame();
+      }
+    } else {
+      loadLegacyGame();
     }
   }, []);
+
+  // 自動保存
+  useEffect(() => {
+    if (gameMeta && gameState.game.id) {
+      if (
+        !gameMeta.gameInfo?.endTime ||
+        gameMeta.gameInfo.endTime.trim() === ""
+      ) {
+        localStorage.setItem(
+          "baseballGameState",
+          JSON.stringify({
+            game: gameState.game,
+            history: gameState.history,
+            historyIndex: gameState.historyIndex,
+            currentBatterIndex,
+            currentOuts,
+            currentAtBat,
+            currentScreen,
+            screenHistory,
+          })
+        );
+        localStorage.setItem(
+          "baseballGame",
+          JSON.stringify(gameState.game, null, 2)
+        );
+      }
+    }
+  }, [
+    gameState,
+    currentBatterIndex,
+    currentOuts,
+    currentAtBat,
+    currentScreen,
+    screenHistory,
+    gameMeta,
+  ]);
+
+  if (!gameMeta) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white">
+        <div className="container mx-auto py-6">
+          <h1 className="text-2xl font-bold mb-6 px-4">試合情報を入力</h1>
+          <GameMetaForm
+            onSubmit={(meta) => {
+              setGameMeta(meta);
+              localStorage.setItem("gameMeta", JSON.stringify(meta));
+            }}
+            onChange={(meta) => {
+              localStorage.setItem("gameMeta", JSON.stringify(meta));
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   const runners = getCurrentRunners();
   const canUndo = gameState.historyIndex >= 0;
@@ -759,243 +1136,36 @@ const ScoreInput: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
-      {/* ヘッダー */}
-      <div className="bg-black px-3 py-2 flex items-center justify-between">
-        <div className="flex gap-2">
-          {canUndo && (
-            <button
-              onClick={handleUndo}
-              className="px-3 py-1 bg-gray-700 rounded text-xs font-semibold"
-            >
-              ← 元に戻す
-            </button>
-          )}
-          {canRedo && (
-            <button
-              onClick={handleRedo}
-              className="px-3 py-1 bg-gray-700 rounded text-xs font-semibold"
-            >
-              やり直し →
-            </button>
-          )}
-        </div>
-        <button
-          onClick={handleSave}
-          className="px-3 py-1 bg-blue-700 rounded text-xs font-semibold"
-        >
-          保存
-        </button>
-      </div>
+      <GameHeader
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onSave={handleSave}
+      />
 
-      {/* スコアボード */}
-      <div className="bg-gradient-to-b from-gray-900 to-black px-2 py-2">
-        <table className="w-full text-xs border-collapse">
-          <thead>
-            <tr className="text-gray-400">
-              <th className="text-left px-1 w-12 text-[10px]">チーム</th>
-              {Array.from({ length: 9 }, (_, i) => i + 1).map((i) => (
-                <th key={i} className="px-0.5 w-5 text-[10px]">
-                  {i}
-                </th>
-              ))}
-              <th className="px-1 text-yellow-400 w-6 text-[10px]">計</th>
-              <th className="px-1 w-5 text-[10px]">安</th>
-              <th className="px-1 w-5 text-[10px]">失</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="text-center border-t border-gray-700">
-              <td className="text-left px-1 font-bold text-xs">
-                {gameState.game.awayTeam}
-              </td>
-              {Array.from({ length: 9 }, (_, i) => i + 1).map((i) => {
-                const score = getInningScoreUtil(i, "top");
-                const isCurrent =
-                  gameState.game.currentInning === i &&
-                  gameState.game.currentTopBottom === "top";
-                return (
-                  <td
-                    key={i}
-                    className={`px-0.5 py-0.5 text-xs ${
-                      isCurrent ? "bg-blue-600 font-bold" : ""
-                    }`}
-                  >
-                    {score || "0"}
-                  </td>
-                );
-              })}
-              <td className="px-1 text-yellow-400 font-bold text-sm">
-                {gameState.game.awayScore}
-              </td>
-              <td className="px-1 text-xs">{getTeamHitsUtil("top")}</td>
-              <td className="px-1 text-xs">{getTeamErrorsUtil("top")}</td>
-            </tr>
-            <tr className="text-center border-t border-gray-700">
-              <td className="text-left px-1 font-bold text-xs">
-                {gameState.game.homeTeam}
-              </td>
-              {Array.from({ length: 9 }, (_, i) => i + 1).map((i) => {
-                const score = getInningScoreUtil(i, "bottom");
-                const isCurrent =
-                  gameState.game.currentInning === i &&
-                  gameState.game.currentTopBottom === "bottom";
-                return (
-                  <td
-                    key={i}
-                    className={`px-0.5 py-0.5 text-xs ${
-                      isCurrent ? "bg-blue-600 font-bold" : ""
-                    }`}
-                  >
-                    {score || "0"}
-                  </td>
-                );
-              })}
-              <td className="px-1 text-yellow-400 font-bold text-sm">
-                {gameState.game.homeScore}
-              </td>
-              <td className="px-1 text-xs">{getTeamHitsUtil("bottom")}</td>
-              <td className="px-1 text-xs">{getTeamErrorsUtil("bottom")}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <Scoreboard
+        awayTeam={gameState.game.awayTeam}
+        homeTeam={gameState.game.homeTeam}
+        currentInning={gameState.game.currentInning}
+        currentTopBottom={gameState.game.currentTopBottom}
+        awayScore={gameState.game.awayScore}
+        homeScore={gameState.game.homeScore}
+        getInningScore={getInningScoreUtil}
+        getTeamHits={getTeamHitsUtil}
+        getTeamErrors={getTeamErrorsUtil}
+      />
 
-      {/* 打者情報バー */}
-      <div className="bg-blue-600 px-2 py-1.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-white text-blue-600 flex items-center justify-center font-bold text-xs">
-            {currentBatterIndex + 1}
-          </div>
-          <div className="font-bold text-sm">{lineup[currentBatterIndex]}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0.5">
-            <span className="text-[10px] opacity-80">B</span>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full ${
-                  i < currentAtBat.balls ? "bg-green-400" : "bg-blue-800"
-                }`}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-0.5">
-            <span className="text-[10px] opacity-80">S</span>
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full ${
-                  i < currentAtBat.strikes ? "bg-yellow-400" : "bg-blue-800"
-                }`}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-0.5">
-            <span className="text-[10px] opacity-80">O</span>
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full ${
-                  i < currentOuts ? "bg-red-400" : "bg-blue-800"
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
+      <BatterInfoBar
+        batterIndex={currentBatterIndex}
+        batterName={lineup[currentBatterIndex]}
+        balls={currentAtBat.balls}
+        strikes={currentAtBat.strikes}
+        outs={currentOuts}
+      />
 
-      {/* 野球場ビジュアル */}
-      <div className="bg-black px-3 py-1">
-        <svg viewBox="0 0 400 200" className="w-full max-w-xl mx-auto h-auto">
-          <path
-            d="M 200 180 L 140 120 L 200 60 L 260 120 Z"
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="2.5"
-          />
-          <circle
-            cx="200"
-            cy="140"
-            r="14"
-            fill="none"
-            stroke="#888888"
-            strokeWidth="1.5"
-          />
-          <path
-            d="M 200 180 L 193 176 L 193 168 L 200 164 L 207 168 L 207 176 Z"
-            fill="white"
-            stroke="#333"
-            strokeWidth="1"
-          />
-          <rect
-            x="254"
-            y="114"
-            width="12"
-            height="12"
-            fill={runners.some((r) => r.base === 1) ? "#fbbf24" : "white"}
-            stroke="#333"
-            strokeWidth="1"
-          />
-          {runners.find((r) => r.base === 1) && (
-            <text
-              x="260"
-              y="140"
-              textAnchor="middle"
-              fill="white"
-              fontSize="10"
-              fontWeight="bold"
-            >
-              {runners.find((r) => r.base === 1)?.name}
-            </text>
-          )}
-          <rect
-            x="194"
-            y="54"
-            width="12"
-            height="12"
-            fill={runners.some((r) => r.base === 2) ? "#fbbf24" : "white"}
-            stroke="#333"
-            strokeWidth="1"
-            transform="rotate(45 200 60)"
-          />
-          {runners.find((r) => r.base === 2) && (
-            <text
-              x="200"
-              y="48"
-              textAnchor="middle"
-              fill="white"
-              fontSize="10"
-              fontWeight="bold"
-            >
-              {runners.find((r) => r.base === 2)?.name}
-            </text>
-          )}
-          <rect
-            x="134"
-            y="114"
-            width="12"
-            height="12"
-            fill={runners.some((r) => r.base === 3) ? "#fbbf24" : "white"}
-            stroke="#333"
-            strokeWidth="1"
-          />
-          {runners.find((r) => r.base === 3) && (
-            <text
-              x="140"
-              y="140"
-              textAnchor="middle"
-              fill="white"
-              fontSize="10"
-              fontWeight="bold"
-            >
-              {runners.find((r) => r.base === 3)?.name}
-            </text>
-          )}
-        </svg>
-      </div>
+      <BaseballField runners={runners} />
 
-      {/* 入力パネル */}
       <InputPanel
         inputStep={inputStep}
         currentAtBat={currentAtBat}
@@ -1017,7 +1187,7 @@ const ScoreInput: React.FC = () => {
         currentScreen={currentScreen}
         setCurrentScreen={navigateToScreen}
         onBack={goBack}
-        canGoBack={screenHistory.length > 0 || currentScreen !== "pitch"}
+        canGoBack={canGoBack}
         pendingAtBat={pendingAtBat}
         setPendingAtBat={setPendingAtBat}
         saveAtBatWithPending={saveAtBatWithPending}
@@ -1030,30 +1200,57 @@ const ScoreInput: React.FC = () => {
         handleFinishPlay={handleFinishPlay}
         currentOuts={currentOuts}
         calculateForcedAdvances={calculateForcedAdvancesUtil}
+        onGameEnd={handleGameEnd}
+        onOpenSubstitutionModal={() => setIsSubstitutionModalOpen(true)}
       />
 
-      {/* 走者進塁モーダル（オプション処理用） */}
-      {isRunnerModalOpen && currentScreen === "pitch" && (
-        <RunnerAdvanceModal
-          isOpen={isRunnerModalOpen}
-          onClose={() => {
-            setIsRunnerModalOpen(false);
-            setLastAtBatBatterName("");
-            setRunnerActionType("");
-          }}
-          onSave={handleSaveRunnerAdvances}
-          currentRunners={runners}
-          currentBatterName={lastAtBatBatterName}
-          actionType={runnerActionType}
-          batterReason={
-            pendingAtBat?.battingResult === "hitByPitch"
-              ? "HBP"
-              : pendingAtBat?.battingResult === "walk"
-              ? "BB"
-              : "Hit"
-          }
+      {/* RunnerAdvanceModalは盗塁・牽制・暴投など、走者1人だけを扱う特殊なケースでのみ使用 */}
+      {/* HBP/BBの時はRunnerScreenを使用するため、ここでは表示しない */}
+      {isRunnerModalOpen &&
+        currentScreen === "pitch" &&
+        runnerActionType !== "" &&
+        pendingAtBat?.battingResult !== "hitByPitch" &&
+        pendingAtBat?.battingResult !== "walk" && (
+          <RunnerAdvanceModal
+            isOpen={isRunnerModalOpen}
+            onClose={() => {
+              setIsRunnerModalOpen(false);
+              setRunnerActionType("");
+              setCurrentScreen("pitch");
+            }}
+            onSave={handleSaveRunnerAdvances}
+            currentRunners={runners}
+            currentBatterName={lastAtBatBatterName}
+            actionType={runnerActionType}
+            batterReason="Other"
+            initialAdvances={undefined}
+          />
+        )}
+
+      {isSubstitutionModalOpen && gameMeta && (
+        <SubstitutionModal
+          isOpen={isSubstitutionModalOpen}
+          onClose={() => setIsSubstitutionModalOpen(false)}
+          onConfirm={handleSubstitution}
+          gameMeta={gameMeta}
+          currentInning={gameState.game.currentInning}
+          currentTopBottom={gameState.game.currentTopBottom}
+          currentBatterIndex={currentBatterIndex}
+          runners={runners}
         />
       )}
+
+      <DroppedThirdStrikeModal
+        isOpen={isDroppedThirdStrikeModalOpen}
+        onSelect={handleDroppedThirdStrikeSelect}
+        batterName={lineup[currentBatterIndex] || ""}
+      />
+
+      <GameEndModal
+        isOpen={isGameEndModalOpen}
+        onConfirm={handleGameEndConfirm}
+        onCancel={() => setIsGameEndModalOpen(false)}
+      />
     </div>
   );
 };

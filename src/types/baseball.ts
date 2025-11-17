@@ -2,7 +2,7 @@
 // 野球スコア管理の型定義
 // ============================================
 
-export type Position = "P" | "C" | "1B" | "2B" | "3B" | "SS" | "LF" | "CF" | "RF";
+export type Position = "P" | "C" | "1B" | "2B" | "3B" | "SS" | "LF" | "CF" | "RF" | "DH";
 export type Base = 0 | 1 | 2 | 3 | 4;
 
 export type PitchResult =
@@ -210,4 +210,26 @@ export type ScreenType =
   | "rundown"
   | "result"
   | "buntType";
+
+// 選手交代の種類
+export type SubstitutionType =
+  | "batter"      // 打者交代
+  | "runner"      // 走者交代
+  | "defense"     // 守備交代
+  | "defenseSwap"; // 守備位置入れ替え
+
+// 選手交代情報
+export interface Substitution {
+  id: string;
+  team: "home" | "away";
+  type: SubstitutionType;
+  originalPlayerId: string;  // 交代前の選手ID
+  newPlayerId: string;       // 交代後の選手ID
+  battingOrder?: number;     // 打者交代の場合の打順
+  base?: 1 | 2 | 3;          // 走者交代の場合の塁
+  position?: Position;       // 守備交代の場合の守備位置
+  inning: number;
+  topBottom: "top" | "bottom";
+  timestamp: string;
+}
 

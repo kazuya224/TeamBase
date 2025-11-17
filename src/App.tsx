@@ -27,7 +27,7 @@ function AppContent() {
       {/* メインコンテンツ */}
       <main className="lg:ml-64">
         <Routes>
-          <Route path="/" element={<ScoreInput />} />
+          <Route path="/" element={<Records />} />
           <Route path="/score-input" element={<ScoreInput />} />
           <Route path="/records" element={<Records />} />
           <Route path="/stats" element={<Stats />} />
