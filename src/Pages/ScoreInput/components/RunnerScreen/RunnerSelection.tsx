@@ -1,11 +1,18 @@
 import React from "react";
-import type { RunnerInfo } from "../../../../types/baseball";
+import type { Base, RunnerInfo } from "../../../../types/baseball";
 
+type RunnerKey = "BR" | "R1" | "R2" | "R3";
+
+type SelectionRunner = {
+  runnerId: RunnerKey;
+  base: Base;
+  name: string;
+};
 interface RunnerSelectionProps {
-  runners: RunnerInfo[];
+  runners: SelectionRunner[];
   currentBatterName?: string;
-  selectedRunner: string | "BR" | "";
-  onRunnerSelect: (runner: string | "BR") => void;
+  selectedRunner: RunnerKey | "";
+  onRunnerSelect: (runner: RunnerKey) => void;
 }
 
 export const RunnerSelection: React.FC<RunnerSelectionProps> = ({

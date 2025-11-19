@@ -282,7 +282,7 @@ const ScoreInput: React.FC = () => {
   const getInningScoreUtil = (
     inningNumber: number,
     topBottom: "top" | "bottom"
-  ): number => {
+  ): number | null => {
     return getInningScore(gameState.game.innings, inningNumber, topBottom);
   };
 
@@ -355,16 +355,22 @@ const ScoreInput: React.FC = () => {
   );
 
   const handlePitchResult = (result: PitchResult) => {
+    // カウントの元値
     let newStrikes = currentAtBat.strikes;
     let newBalls = currentAtBat.balls;
 
+    // ==============================
+    // ストライク系
+    // ==============================
     if (
       result === "strike" ||
       result === "swingingMiss" ||
       result === "calledStrike"
     ) {
       newStrikes++;
+
       if (newStrikes >= 3) {
+        // 振り逃げ判定用に最後の投球を保持してモーダルへ
         setPendingStrikeoutPitch({
           result,
           count: { balls: newBalls, strikes: newStrikes },
@@ -372,8 +378,14 @@ const ScoreInput: React.FC = () => {
         setIsDroppedThirdStrikeModalOpen(true);
         return;
       }
+
+      // ==============================
+      // ボール（四球判定）
+      // ==============================
     } else if (result === "ball") {
       newBalls++;
+
+      // ★ 4ボールになったらフォアボール処理
       if (newBalls >= 4) {
         const atBat = createWalkAtBat(
           [
@@ -382,14 +394,28 @@ const ScoreInput: React.FC = () => {
           ],
           "BB"
         );
+
+        // 走者入力待ちの打席として pendingAtBat に保存
         setPendingAtBat(atBat);
         setLastAtBatBatterName(lineup[currentBatterIndex]);
-        navigateToScreen("runner");
+
+        // このタイミングではアウト・打者進行は行わない（Runner画面で決定）
         resetAtBatInputs();
+        navigateToScreen("runner");
+        setRunnerActionType("");
+
         return;
       }
+
+      // ==============================
+      // ファウル
+      // ==============================
     } else if (result === "foul") {
       if (newStrikes < 2) newStrikes++;
+
+      // ==============================
+      // ファウルチップ
+      // ==============================
     } else if (result === "foulTip") {
       newStrikes++;
       if (newStrikes >= 3) {
@@ -400,26 +426,37 @@ const ScoreInput: React.FC = () => {
       if (runners.length > 0) {
         setCurrentScreen("runner");
       }
+
+      // ==============================
+      // 死球（HBP）
+      // ==============================
     } else if (result === "hitByPitch") {
-      const currentBatter = lineup[currentBatterIndex];
-      setLastAtBatBatterName(currentBatter);
-      setPendingAtBat({
-        batterName: currentBatter,
-        battingResult: "hitByPitch",
-        pitches: [
+      const atBat = createWalkAtBat(
+        [
           ...currentAtBat.pitches,
           { result, count: { balls: newBalls, strikes: newStrikes } },
         ],
-        outs: 0,
-        rbis: 0, // ★ RBIs は handleSaveRunnerAdvances で最終決定する前提
-        runnerAdvances: [], // 空配列で初期化、RunnerScreenでユーザーが入力
-      });
+        "HBP"
+      );
+
+      setPendingAtBat(atBat);
+      setLastAtBatBatterName(lineup[currentBatterIndex]);
+      resetAtBatInputs();
       navigateToScreen("runner");
       setRunnerActionType("");
+
       return;
+
+      // ==============================
+      // ヒット → 打球入力画面へ
+      // ==============================
     } else if (result === "hit") {
       navigateToScreen("batting");
       return;
+
+      // ==============================
+      // バント
+      // ==============================
     } else if (result === "bunt") {
       if (newStrikes >= 2) {
         completeAtBat("strikeout");
@@ -429,6 +466,9 @@ const ScoreInput: React.FC = () => {
       return;
     }
 
+    // ==============================
+    // ここまで来たらカウントと投球履歴を更新
+    // ==============================
     setCurrentAtBat({
       ...currentAtBat,
       strikes: newStrikes,
@@ -515,10 +555,18 @@ const ScoreInput: React.FC = () => {
     shouldAdvanceBatter: boolean = true
   ) => {
     const currentInning = getCurrentInning();
-    const updatedInning = {
+
+    // ★ この打席で入った得点を集計
+    const runsScoredThisAtBat = (atBat.runnerAdvances || []).filter(
+      (a) => a.scored || a.toBase === 4 // 本塁到達も含める
+    ).length;
+
+    const updatedInning: Inning = {
       ...currentInning,
       atBats: [...currentInning.atBats, atBat],
       outs: (currentOuts + atBat.outs) % 3,
+      // ★ ここでイニングスコアを加算
+      score: (currentInning.score || 0) + runsScoredThisAtBat,
     };
 
     const action: GameAction = {
@@ -533,9 +581,11 @@ const ScoreInput: React.FC = () => {
             ? updatedInning
             : i
         );
+        // ★ ここでは inning.score を使うので OK（得点計算済み）
         return { ...game, innings: updatedInnings };
       },
       revert: (game: Game) => {
+        // ここは今のままでも OK（あとで applyAction 側で合計点を再計算する）
         const revertedAtBats = updatedInning.atBats.slice(0, -1);
         const revertedOuts = recalculateOuts(revertedAtBats);
         const revertedInning = {
@@ -570,36 +620,86 @@ const ScoreInput: React.FC = () => {
     const currentInning = getCurrentInning();
     const currentBatter = lastAtBatBatterName || pendingAtBat?.batterName;
 
+    // ★ 修正: 得点した走者を runnerId ベースで重複排除
+    const scoredRunners = new Set<string>();
+    advances.forEach((a) => {
+      if (a.scored && a.runnerId) {
+        scoredRunners.add(a.runnerId);
+      }
+    });
+    const scoredCount = scoredRunners.size;
+
+    // ★ 修正: RBI（打点）の計算
+    // 打点がつく条件:
+    // 1. 得点した走者がいる
+    // 2. その得点が以下のいずれかによるもの:
+    //    - Hit（安打）
+    //    - SF（犠飛）
+    //    - SH（犠打）で得点した場合
+    //    - BB（四球）で押し出し
+    //    - HBP（死球）で押し出し
+    // 3. エラー（E）のみでの得点は打点にカウントしない
+    const calculateRBIs = (): number => {
+      let rbis = 0;
+
+      // 得点した走者ごとにチェック
+      scoredRunners.forEach((runnerId) => {
+        // その走者の最終的な進塁記録を取得（toBase === 4 のもの）
+        const scoringAdvance = advances.find(
+          (a) => a.runnerId === runnerId && a.scored
+        );
+
+        if (!scoringAdvance) return;
+
+        // 打点がつく理由かどうかを判定
+        const reason = scoringAdvance.reason;
+        const rbiReasons: RunnerAdvanceReason[] = [
+          "Hit",
+          "SF",
+          "BB",
+          "HBP",
+          "BatterInterference",
+          "FielderInterference",
+        ];
+
+        // 犠打（SH）は走者が得点した場合のみ打点
+        // エラー（E）やフィールダースチョイス（FC）は打点なし
+        if (rbiReasons.includes(reason)) {
+          rbis++;
+        } else if (reason === "SH") {
+          // 犠打は通常アウトだが、得点すれば打点になる
+          rbis++;
+        }
+      });
+
+      return rbis;
+    };
+
+    // ★ 修正: 走者のアウト数を runnerId ベースでカウント
+    const outRunners = new Set<string>();
+    advances.forEach((a) => {
+      if (a.out && a.runnerId) {
+        outRunners.add(a.runnerId);
+      }
+    });
+    const runnerOuts = outRunners.size;
+
     // ★ pendingAtBat があるパターン（フォアボール・死球・ヒットなど）
     if (pendingAtBat) {
-      // 得点: scored === true または toBase === 4（本塁到達）
-      const scoredCount = advances.filter(
-        (a) => a.scored || a.toBase === 4
-      ).length;
-      const runnerOuts = advances.filter((a) => a.out).length;
+      const rbis = calculateRBIs();
 
-      // pendingAtBatを更新して保存
       const updatedAtBat: AtBat = {
         ...pendingAtBat,
         batterName: pendingAtBat.batterName || currentBatter || "",
         runnerAdvances: advances,
-        rbis: scoredCount,
+        rbis,
         outs: (pendingAtBat.outs || 0) + runnerOuts,
       };
 
-      // AtBatを保存
+      // ★ 打者の進行・アウト数の更新は saveAtBatWithPending に任せる
       saveAtBatWithPending(updatedAtBat, true);
 
-      // 打者カウントの進行
-      const newOuts = currentOuts + updatedAtBat.outs;
-      if (newOuts >= 3) {
-        nextInning();
-      } else {
-        advanceBatter();
-      }
-      setCurrentOuts(newOuts % 3);
-
-      // 状態をリセット
+      // ★ ここでは余計な進行処理は行わず、状態リセットのみ行う
       setPendingAtBat(null);
       setLastAtBatBatterName("");
       setCurrentScreen("pitch");
@@ -607,18 +707,13 @@ const ScoreInput: React.FC = () => {
       return;
     }
 
-    // ★ ここから下は既存の「pendingAtBat がない」パターン（今までのロジックをそのまま）
+    // ★ ここから下は既存の「pendingAtBat がない」パターン
     if (!currentBatter) {
       setIsRunnerModalOpen(false);
       return;
     }
 
-    // 共通で使う値
-    // 得点: scored === true または toBase === 4（本塁到達）
-    const scoredCount = advances.filter(
-      (a) => a.scored || a.toBase === 4
-    ).length;
-    const runnerOuts = advances.filter((a) => a.out).length;
+    const rbis = calculateRBIs();
 
     const updatedAtBats = [...currentInning.atBats];
     const lastIndex = updatedAtBats.length - 1;
@@ -629,14 +724,20 @@ const ScoreInput: React.FC = () => {
     ) {
       const lastAtBat = updatedAtBats[lastIndex];
       const lastOutsBefore = lastAtBat.outs || 0;
-      const lastScoredBefore =
-        lastAtBat.runnerAdvances?.filter((a) => a.scored || a.toBase === 4)
-          .length || 0;
+
+      // ★ 修正: 以前の得点数も runnerId ベースで計算
+      const previousScoredRunners = new Set<string>();
+      (lastAtBat.runnerAdvances || []).forEach((a) => {
+        if (a.scored && a.runnerId) {
+          previousScoredRunners.add(a.runnerId);
+        }
+      });
+      const lastScoredBefore = previousScoredRunners.size;
 
       updatedAtBats[lastIndex] = {
         ...lastAtBat,
         runnerAdvances: advances,
-        rbis: scoredCount,
+        rbis, // ★ 修正: 計算された RBI を設定
       };
 
       const outsThisPlay = (lastAtBat.outs || 0) + runnerOuts;

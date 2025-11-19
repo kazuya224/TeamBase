@@ -4,6 +4,7 @@ export const ADVANCE_REASONS: { value: RunnerAdvanceReason; label: string }[] = 
   { value: "Hit", label: "安打" },
   { value: "BB", label: "四球" },
   { value: "HBP", label: "死球" },
+  { value: "strikeoutDropped", label: "振り逃げ"},
   { value: "SB", label: "盗塁" },
   { value: "CS", label: "盗塁死" },
   { value: "PO", label: "牽制死" },

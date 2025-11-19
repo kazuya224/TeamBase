@@ -87,14 +87,14 @@ export const OutcomeSelection: React.FC<OutcomeSelectionProps> = ({
       )}
       {/* アピールの場合は進塁先選択不要で即座に「進塁を追加」ボタンを表示 */}
       {/* アピール以外で、進塁先が選択され、進塁理由がすべて選択されている場合、「進塁を追加」ボタンを表示 */}
-      {showAddButton && (
+      {/* {showAddButton && (
         <button
           onClick={onAddAdvance}
           className="w-full py-2 bg-green-600 rounded-lg font-bold text-xs"
         >
           進塁を追加
         </button>
-      )}
+      )} */}
     </div>
   );
 };

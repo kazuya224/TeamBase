@@ -1,3 +1,4 @@
+// src/components/ScoreInput/components/Scoreboard.tsx
 import React from "react";
 
 interface ScoreboardProps {
@@ -7,7 +8,10 @@ interface ScoreboardProps {
   currentTopBottom: "top" | "bottom";
   awayScore: number;
   homeScore: number;
-  getInningScore: (inningNumber: number, topBottom: "top" | "bottom") => number;
+  getInningScore: (
+    inningNumber: number,
+    topBottom: "top" | "bottom"
+  ) => number | null;
   getTeamHits: (topBottom: "top" | "bottom") => number;
   getTeamErrors: (topBottom: "top" | "bottom") => number;
 }
@@ -22,7 +26,7 @@ interface TeamRowProps {
   totalScore: number;
   currentInning: number;
   currentTopBottom: Half;
-  getInningScore: (inningNumber: number, topBottom: Half) => number;
+  getInningScore: (inningNumber: number, topBottom: Half) => number | null;
   getTeamHits: (topBottom: Half) => number;
   getTeamErrors: (topBottom: Half) => number;
 }
@@ -52,7 +56,7 @@ const TeamRow: React.FC<TeamRowProps> = ({
               isCurrentHalf(inning) ? "bg-blue-600 font-bold" : ""
             }`}
           >
-            {score ?? "0"}
+            {score === null ? "" : score}
           </td>
         );
       })}

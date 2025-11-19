@@ -21,6 +21,12 @@ type RunnerDecision = {
   segmentReasons: Record<number, RunnerAdvanceReason>;
 };
 
+type SelectionRunner = {
+  runnerId: RunnerKey;
+  base: Base;
+  name: string;
+};
+
 interface RunnerScreenProps {
   runners: RunnerInfo[];
   currentBatterName?: string;
@@ -66,22 +72,45 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
     Record<RunnerKey, RunnerDecision | undefined>
   >({} as Record<RunnerKey, RunnerDecision | undefined>);
 
+  // 【修正A-2】base → RunnerKey 変換関数
+  const baseToRunnerKey = (base: Base): RunnerKey => {
+    if (base === 1) return "R1";
+    if (base === 2) return "R2";
+    if (base === 3) return "R3";
+    return "BR"; // base=0（打者）の場合
+  };
+
   // 全ランナーリスト（打者 + 既存走者）
   const allRunners = useMemo(() => {
     const list: Array<{ runnerId: RunnerKey; name: string; fromBase: Base }> =
       [];
+
     if (currentBatterName) {
       list.push({ runnerId: "BR", name: currentBatterName, fromBase: 0 });
     }
+
     runners.forEach((runner) => {
+      const runnerKey = baseToRunnerKey(runner.base as Base);
       list.push({
-        runnerId: runner.runnerId as RunnerKey,
+        runnerId: runnerKey,
         name: runner.name,
         fromBase: runner.base as Base,
       });
     });
+
     return list;
   }, [runners, currentBatterName]);
+
+  const selectionRunners: SelectionRunner[] = useMemo(() => {
+    return runners.map((runner) => {
+      const runnerKey = baseToRunnerKey(runner.base as Base);
+      return {
+        runnerId: runnerKey,
+        base: runner.base as Base,
+        name: runner.name,
+      };
+    });
+  }, [runners]);
 
   // 初期進塁理由を取得
   const getInitialReason = (): RunnerAdvanceReason | null => {
@@ -278,6 +307,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
   }, [allRunners, runnerDecisions]);
 
   // 「進塁を追加」ボタンを押したとき
+  // 「進塁を追加」ボタン押下時
   const handleComplete = () => {
     if (!allCompleted) return;
 
@@ -290,7 +320,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
       const fromBase = runner.fromBase;
       const toBase = decision.toBase;
 
-      // アピールアウトの場合
+      // アピールアウト
       if (decision.result === "appeal") {
         advances.push({
           runnerId: runner.runnerId,
@@ -305,40 +335,29 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         return;
       }
 
-      // 通常の進塁の場合
-      const segments: number[] = [];
-      for (let i = fromBase; i < toBase; i++) {
-        segments.push(i);
-      }
-
       const isOut = decision.result === "out" || decision.result === "tagOut";
-      let currentBase = fromBase;
 
-      segments.forEach((segment) => {
-        const nextBase = (segment + 1) as Base;
-        advances.push({
-          runnerId: runner.runnerId,
-          fromBase: currentBase as Base,
-          toBase: nextBase,
-          reason: decision.segmentReasons[segment],
-          scored: nextBase === 4 && decision.result === "safe",
-          out: isOut && nextBase === toBase,
-          outcome:
-            nextBase === toBase
-              ? decision.result === "appeal"
-                ? "out"
-                : (decision.result as "safe" | "out" | "tagOut")
-              : undefined,
-          runnerName: runner.name,
-        });
-        currentBase = nextBase;
+      // 最終セグメントの理由（toBase-1 が最後の区間）
+      const finalSegmentKey = (toBase - 1) as number;
+      const finalReason =
+        decision.segmentReasons[finalSegmentKey] ?? initialReason ?? "Hit";
+
+      advances.push({
+        runnerId: runner.runnerId,
+        fromBase,
+        toBase,
+        reason: finalReason,
+        scored: toBase === 4 && decision.result === "safe",
+        out: isOut,
+        outcome: isOut ? decision.result : "safe",
+        runnerName: runner.name,
       });
     });
 
     onComplete(advances);
   };
 
-  // 表示用の進塁リスト（全ランナーの決定を表示）
+  // 表示用リストも同じように 1 runner = 1行 にする
   const displayAdvances = useMemo(() => {
     const advances: RunnerAdvance[] = [];
 
@@ -363,45 +382,43 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         return;
       }
 
-      const segments: number[] = [];
-      for (let i = fromBase; i < toBase; i++) {
-        segments.push(i);
-      }
-
       const isOut = decision.result === "out" || decision.result === "tagOut";
-      let currentBase = fromBase;
+      const finalSegmentKey = (toBase - 1) as number;
+      const finalReason =
+        decision.segmentReasons[finalSegmentKey] ?? initialReason ?? "Hit";
 
-      segments.forEach((segment) => {
-        const nextBase = (segment + 1) as Base;
-        advances.push({
-          runnerId: runner.runnerId,
-          fromBase: currentBase as Base,
-          toBase: nextBase,
-          reason: decision.segmentReasons[segment],
-          scored: nextBase === 4 && decision.result === "safe",
-          out: isOut && nextBase === toBase,
-          outcome:
-            nextBase === toBase
-              ? decision.result === "appeal"
-                ? "out"
-                : (decision.result as "safe" | "out" | "tagOut")
-              : undefined,
-          runnerName: runner.name,
-        });
-        currentBase = nextBase;
+      advances.push({
+        runnerId: runner.runnerId,
+        fromBase,
+        toBase,
+        reason: finalReason,
+        scored: toBase === 4 && decision.result === "safe",
+        out: isOut,
+        outcome: isOut ? decision.result : "safe",
+        runnerName: runner.name,
       });
     });
 
     return advances;
-  }, [allRunners, runnerDecisions]);
+  }, [allRunners, runnerDecisions, initialReason]);
 
-  // 進塁を削除（ランナーごとの決定を削除）
-  const handleRemoveAdvance = (runnerId: RunnerKey) => {
+  // ✅ 修正: index ベースの削除に変更
+  const handleRemoveAdvance = (index: number) => {
+    if (index < 0 || index >= displayAdvances.length) return;
+
+    const targetAdvance = displayAdvances[index];
+    const targetRunnerId = targetAdvance.runnerId as RunnerKey;
+
     setRunnerDecisions((prev) => {
       const newDecisions = { ...prev };
-      delete newDecisions[runnerId];
+      delete newDecisions[targetRunnerId];
       return newDecisions;
     });
+
+    // ★ 追加：削除した走者が選択中なら選択もクリア
+    if (selectedRunnerId === targetRunnerId) {
+      setSelectedRunnerId("");
+    }
   };
 
   return (
@@ -419,7 +436,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
       </div>
 
       <RunnerSelection
-        runners={runners}
+        runners={selectionRunners}
         currentBatterName={currentBatterName}
         selectedRunner={selectedRunnerId}
         onRunnerSelect={(id) => setSelectedRunnerId(id as RunnerKey)}
@@ -429,7 +446,10 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         <>
           <ToBaseSelection
             selectedRunner={selectedRunnerId}
-            selectedToBase={selectedToBase}
+            fromBase={selectedRunner.fromBase} // ★ 追加
+            selectedToBase={
+              selectedToBase ?? selectedRunner.fromBase // ★ まだ選んでなければ現在の塁
+            }
             onToBaseSelect={handleToBaseSelect}
           />
 
@@ -449,59 +469,17 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
             selectedOutcome={selectedOutcome}
             onOutcomeSelect={handleOutcomeSelect}
             onAddAdvance={() => {
-              // このボタンは使わない（全員分の入力が終わったら「進塁を追加」ボタンを表示）
+              // ここはそのまま
             }}
           />
         </>
       )}
 
-      {/* 全ランナーの決定を表示 */}
-      {displayAdvances.length > 0 && (
-        <div className="mb-3 p-2 bg-gray-800 rounded">
-          <div className="text-xs text-gray-400 mb-1">選択された進塁</div>
-          {allRunners
-            .filter((runner) => runnerDecisions[runner.runnerId])
-            .map((runner) => {
-              const decision = runnerDecisions[runner.runnerId]!;
-              const fromBaseLabel =
-                runner.fromBase === 0
-                  ? "打席"
-                  : runner.fromBase === 4
-                  ? "本塁"
-                  : `${runner.fromBase}塁`;
-              const toBaseLabel =
-                decision.toBase === 4 ? "本塁" : `${decision.toBase}塁`;
-              const outcomeLabel =
-                decision.result === "safe"
-                  ? "セーフ"
-                  : decision.result === "out"
-                  ? "アウト"
-                  : decision.result === "tagOut"
-                  ? "タッチアウト"
-                  : "アピール";
-
-              return (
-                <div
-                  key={runner.runnerId}
-                  className="flex items-center justify-between mb-2 p-2 bg-gray-700 rounded"
-                >
-                  <div className="flex-1">
-                    <div className="text-xs">
-                      {runner.name}: {fromBaseLabel} → {toBaseLabel} -{" "}
-                      {outcomeLabel}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveAdvance(runner.runnerId)}
-                    className="text-xs text-red-400 underline ml-2"
-                  >
-                    削除
-                  </button>
-                </div>
-              );
-            })}
-        </div>
-      )}
+      {/* ✅ 修正: AdvanceList に index ベースの削除関数を渡す */}
+      <AdvanceList
+        runnerAdvances={displayAdvances}
+        onRemoveAdvance={handleRemoveAdvance}
+      />
 
       {/* 全員分の入力が終わったら「進塁を追加」ボタンを表示 */}
       {allRunners.length > 0 && (

@@ -80,6 +80,7 @@ export type RunnerAdvanceReason =
   | "FielderInterference"
   | "BatterInterference"
   | "RunnerInterference"
+  | "strikeoutDropped"
   | "TagUp"
   | "Overtake"
   | "AbandonBase"
