@@ -5,7 +5,7 @@ import { NavigationButtons } from "./NavigationButtons";
 interface RundownScreenProps {
   runners: RunnerInfo[];
   onComplete: (positions: Position[], runnerId?: string) => void;
-  onNavigateToResult: () => void;
+  onNavigateToResult: () => void; // ★ 受け取りはそのまま
   onNavigateToCutPlay?: () => void;
   onNavigateToRundown?: () => void;
   onNavigateToRunner?: () => void;
@@ -31,7 +31,7 @@ type BasePath = "1-2" | "2-3" | "3-H";
 export const RundownScreen: React.FC<RundownScreenProps> = ({
   runners,
   onComplete,
-  onNavigateToResult,
+  onNavigateToResult, // ★ ここも残す（ただし下では使わない）
   onNavigateToCutPlay,
   onNavigateToRundown,
   onNavigateToRunner,
@@ -45,23 +45,30 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
   const basePaths: BasePath[] = useMemo(() => ["1-2", "2-3", "3-H"], []);
 
   const handlePositionSelect = (pos: Position) => {
-    setDefensiveSequence((prev) =>
-      prev.includes(pos) ? prev.filter((p) => p !== pos) : [...prev, pos]
-    );
+    setDefensiveSequence((prev) => [...prev, pos]);
   };
 
   const handleRemoveLast = () => {
     setDefensiveSequence((prev) => prev.slice(0, -1));
   };
 
-  const handleConfirm = () => {
-    if (defensiveSequence.length === 0 || !selectedRunner) return;
-    // 現状 onComplete の引数は positions と runnerId のみ（塁間は内部状態として保持）
-    onComplete(defensiveSequence, selectedRunner);
-  };
-
   const hasRunners = runners.length > 0;
+
+  // ★ 必須条件は現状どおり：守備シーケンス ＋ 走者
   const canConfirm = defensiveSequence.length > 0 && !!selectedRunner;
+  // 「塁間も必須にしたい」なら ↑ に && !!selectedBasePath を足す
+
+  const handleConfirm = () => {
+    if (!canConfirm) return;
+
+    // ★ 守備シーケンスだけ親に渡す（結果は RunnerScreen 側で入力）
+    onComplete(defensiveSequence, selectedRunner);
+
+    // ★ 確定後は「走者」画面へ戻す（＝結果入力は必ず RunnerScreen で）
+    if (onNavigateToRunner) {
+      onNavigateToRunner();
+    }
+  };
 
   return (
     <div>
@@ -147,12 +154,13 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
           <div className="text-xs text-gray-400 mb-1">選択された順番</div>
           <div className="flex flex-wrap gap-1">
             {defensiveSequence.map((pos, idx) => (
-              <span
-                key={`${pos}-${idx}`}
-                className="px-2 py-1 rounded text-xs font-bold bg-orange-600"
-              >
-                {pos}
-              </span>
+              <div key={`${pos}-${idx}`} className="flex items-center">
+                {/* 2個目以降に矢印 → を表示 */}
+                {idx > 0 && <span className="mx-1 text-orange-300">→</span>}
+                <span className="px-2 py-1 rounded text-xs font-bold bg-orange-600">
+                  {pos}
+                </span>
+              </div>
             ))}
           </div>
           <button
@@ -166,28 +174,22 @@ export const RundownScreen: React.FC<RundownScreenProps> = ({
       )}
 
       <div className="flex gap-2 mb-3">
-        <button
+        {/* <button
           type="button"
           onClick={handleConfirm}
           className="flex-1 py-3 bg-orange-600 rounded-lg font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={!canConfirm}
         >
-          確定
-        </button>
-        {/* <button
-          type="button"
-          onClick={onNavigateToResult}
-          className="flex-1 py-3 bg-gray-700 rounded-lg font-bold text-sm"
-        >
-          結果へ
+          確定（走者画面へ）
         </button> */}
       </div>
 
+      {/* ★ NavigationButtons からは「結果へ」ボタンを出さない */}
       <NavigationButtons
         onNavigateToCutPlay={onNavigateToCutPlay}
         onNavigateToRundown={onNavigateToRundown}
         onNavigateToRunner={onNavigateToRunner}
-        onNavigateToResult={onNavigateToResult}
+        // onNavigateToResult={onNavigateToResult}  // ← 渡さない
       />
     </div>
   );

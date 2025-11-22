@@ -39,9 +39,9 @@ export const BaseballField: React.FC<BaseballFieldProps> = ({ runners }) => {
           strokeWidth="1.5"
         />
 
-        {/* ホームベース */}
+        {/* ホームベース（五角形） */}
         <path
-          d="M 200 180 L 193 176 L 193 168 L 200 164 L 207 168 L 207 176 Z"
+          d="M 200 180 L 192 172 L 192 164 L 208 164 L 208 172 Z"
           fill="white"
           stroke="#333"
           strokeWidth="1"

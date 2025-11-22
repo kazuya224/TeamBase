@@ -213,7 +213,16 @@ const ScoreInput: React.FC = () => {
     }));
   }, [gameMeta, gameState.game.currentTopBottom]);
 
-  const [currentBatterIndex, setCurrentBatterIndex] = useState(0);
+  // ============================================
+  // ★ 攻撃側ごとに打順インデックスを分ける
+  // ============================================
+  const [topBatterIndex, setTopBatterIndex] = useState(0); // 表（away）の次打者
+  const [bottomBatterIndex, setBottomBatterIndex] = useState(0); // 裏（home）の次打者
+
+  // 現在の攻撃側を判定して、currentBatterIndex を派生値として定義
+  const isTop = gameState.game.currentTopBottom === "top";
+  const currentBatterIndex = isTop ? topBatterIndex : bottomBatterIndex;
+
   const [currentOuts, setCurrentOuts] = useState(0);
   const [currentAtBat, setCurrentAtBat] = useState<{
     pitches: Array<{
@@ -254,6 +263,7 @@ const ScoreInput: React.FC = () => {
   const [selectedHitDirection, setSelectedHitDirection] = useState<
     HitDirection | ""
   >("");
+
   const [selectedHitType, setSelectedHitType] = useState<HitType | "">("");
   const [selectedPosition, setSelectedPosition] = useState<Position | "">("");
   const [buntType, setBuntType] = useState<BuntType | "">("");
@@ -605,13 +615,20 @@ const ScoreInput: React.FC = () => {
 
     applyAction(action, setGameState);
 
+    // ============================================
+    // ★ 打順進行ロジックの統一: advanceBatter() を常に1回呼ぶ
+    // ============================================
     if (shouldAdvanceBatter) {
       const newOuts = currentOuts + atBat.outs;
+
+      // 攻撃側の「次打者」を常に1つ先に進める
+      advanceBatter();
+
       if (newOuts >= 3) {
+        // 3アウトなら攻守交代
         nextInning();
-      } else {
-        advanceBatter();
       }
+
       setCurrentOuts(newOuts % 3);
     }
   };
@@ -817,10 +834,20 @@ const ScoreInput: React.FC = () => {
     });
   };
 
+  // ============================================
+  // ★ advanceBatter を攻撃側ごとに分岐
+  // ============================================
   const advanceBatter = () => {
-    setCurrentBatterIndex((prev) => (prev + 1) % lineup.length);
+    if (gameState.game.currentTopBottom === "top") {
+      setTopBatterIndex((prev) => (prev + 1) % lineup.length);
+    } else {
+      setBottomBatterIndex((prev) => (prev + 1) % lineup.length);
+    }
   };
 
+  // ============================================
+  // ★ nextInning では打順をリセットしない
+  // ============================================
   const nextInning = () => {
     setGameState((prev) => ({
       ...prev,
@@ -835,7 +862,6 @@ const ScoreInput: React.FC = () => {
       },
     }));
     setCurrentOuts(0);
-    setCurrentBatterIndex(0);
   };
 
   // ★ ヒット系の進塁処理を共通関数で短縮
@@ -887,6 +913,9 @@ const ScoreInput: React.FC = () => {
     setBuntType("");
   };
 
+  // ============================================
+  // ★ localStorage 保存: 表裏のインデックスを保存
+  // ============================================
   const handleSave = () => {
     localStorage.setItem(
       "baseballGame",
@@ -898,7 +927,8 @@ const ScoreInput: React.FC = () => {
         game: gameState.game,
         history: gameState.history,
         historyIndex: gameState.historyIndex,
-        currentBatterIndex,
+        currentTopBatterIndex: topBatterIndex,
+        currentBottomBatterIndex: bottomBatterIndex,
         currentOuts,
         currentAtBat,
         currentScreen,
@@ -1118,7 +1148,9 @@ const ScoreInput: React.FC = () => {
     }
   }, []);
 
-  // 試合状態の復元
+  // ============================================
+  // ★ 試合状態の復元: 表裏のインデックスを復元
+  // ============================================
   useEffect(() => {
     const savedGameState = localStorage.getItem("baseballGameState");
 
@@ -1150,7 +1182,19 @@ const ScoreInput: React.FC = () => {
           history: loadedState.history || [],
           historyIndex: loadedState.historyIndex || -1,
         });
-        setCurrentBatterIndex(loadedState.currentBatterIndex || 0);
+
+        // ★ 表裏のインデックスを復元（旧バージョン互換）
+        setTopBatterIndex(
+          loadedState.currentTopBatterIndex ??
+            loadedState.currentBatterIndex ??
+            0
+        );
+        setBottomBatterIndex(
+          loadedState.currentBottomBatterIndex ??
+            loadedState.currentBatterIndex ??
+            0
+        );
+
         setCurrentOuts(loadedState.currentOuts || 0);
         setCurrentAtBat(
           loadedState.currentAtBat || { pitches: [], strikes: 0, balls: 0 }
@@ -1176,7 +1220,9 @@ const ScoreInput: React.FC = () => {
     }
   }, []);
 
-  // 自動保存
+  // ============================================
+  // ★ 自動保存: 表裏のインデックスを保存
+  // ============================================
   useEffect(() => {
     if (gameMeta && gameState.game.id) {
       if (
@@ -1189,7 +1235,8 @@ const ScoreInput: React.FC = () => {
             game: gameState.game,
             history: gameState.history,
             historyIndex: gameState.historyIndex,
-            currentBatterIndex,
+            currentTopBatterIndex: topBatterIndex,
+            currentBottomBatterIndex: bottomBatterIndex,
             currentOuts,
             currentAtBat,
             currentScreen,
@@ -1204,7 +1251,8 @@ const ScoreInput: React.FC = () => {
     }
   }, [
     gameState,
-    currentBatterIndex,
+    topBatterIndex,
+    bottomBatterIndex,
     currentOuts,
     currentAtBat,
     currentScreen,
@@ -1236,7 +1284,7 @@ const ScoreInput: React.FC = () => {
   const canRedo = gameState.historyIndex < gameState.history.length - 1;
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
+    <div className="min-h-screen bg-black text-white flex flex-col pt-16 lg:pt-20">
       <GameHeader
         canUndo={canUndo}
         canRedo={canRedo}

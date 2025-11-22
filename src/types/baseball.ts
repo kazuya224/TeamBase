@@ -232,5 +232,7 @@ export interface Substitution {
   inning: number;
   topBottom: "top" | "bottom";
   timestamp: string;
+
+  
 }
 

@@ -101,7 +101,7 @@ export const SubstitutionModal: React.FC<SubstitutionModalProps> = ({
     const order = initialOrder <= lineupPlayers.length ? initialOrder : 1;
     setBattingOrder(order);
     setOriginalPlayerId(lineupPlayers[order - 1]?.id || "");
-  }, [isOpen, currentTopBottom, currentBatterIndex, lineupPlayers]);
+  }, [isOpen, currentTopBottom, currentBatterIndex]);
 
   const handleConfirm = () => {
     if (type === "batter") {

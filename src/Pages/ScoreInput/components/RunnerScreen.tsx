@@ -72,7 +72,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
     Record<RunnerKey, RunnerDecision | undefined>
   >({} as Record<RunnerKey, RunnerDecision | undefined>);
 
-  // 【修正A-2】base → RunnerKey 変換関数
+  // base → RunnerKey 変換関数
   const baseToRunnerKey = (base: Base): RunnerKey => {
     if (base === 1) return "R1";
     if (base === 2) return "R2";
@@ -199,10 +199,9 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
     return segments;
   }, [selectedRunner, selectedToBase]);
 
-  // ランナー選択時に、既存の決定情報を読み込む
+  // ランナー選択時に、既存の決定情報を読み込む（今は何もしないがフックとして残す）
   useEffect(() => {
     if (selectedRunnerId && runnerDecisions[selectedRunnerId]) {
-      // 既存の決定情報がある場合は何もしない（既に反映されている）
       return;
     }
   }, [selectedRunnerId, runnerDecisions]);
@@ -306,7 +305,6 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
     });
   }, [allRunners, runnerDecisions]);
 
-  // 「進塁を追加」ボタンを押したとき
   // 「進塁を追加」ボタン押下時
   const handleComplete = () => {
     if (!allCompleted) return;
@@ -357,7 +355,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
     onComplete(advances);
   };
 
-  // 表示用リストも同じように 1 runner = 1行 にする
+  // 表示用リスト（1 runner = 1 行）
   const displayAdvances = useMemo(() => {
     const advances: RunnerAdvance[] = [];
 
@@ -402,7 +400,7 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
     return advances;
   }, [allRunners, runnerDecisions, initialReason]);
 
-  // ✅ 修正: index ベースの削除に変更
+  // ✅ index ベースの削除
   const handleRemoveAdvance = (index: number) => {
     if (index < 0 || index >= displayAdvances.length) return;
 
@@ -415,11 +413,46 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
       return newDecisions;
     });
 
-    // ★ 追加：削除した走者が選択中なら選択もクリア
     if (selectedRunnerId === targetRunnerId) {
       setSelectedRunnerId("");
     }
   };
+
+  // ========= ここからがナビゲーション修正ポイント =========
+
+  const handleNavigateToCutPlay = () => {
+    if (onNavigateToCutPlayFromButtons) {
+      onNavigateToCutPlayFromButtons();
+    } else if (onNavigateToCutPlay) {
+      onNavigateToCutPlay();
+    }
+  };
+
+  const handleNavigateToRundown = () => {
+    if (onNavigateToRundownFromButtons) {
+      onNavigateToRundownFromButtons();
+    } else if (onNavigateToRundown) {
+      onNavigateToRundown();
+    }
+  };
+
+  const handleNavigateToRunner = () => {
+    if (onNavigateToRunnerFromButtons) {
+      onNavigateToRunnerFromButtons();
+    } else if (onNavigateToRunner) {
+      onNavigateToRunner();
+    }
+  };
+
+  const handleNavigateToResult = () => {
+    if (onNavigateToResultFromButtons) {
+      onNavigateToResultFromButtons();
+    } else {
+      onNavigateToResult();
+    }
+  };
+
+  // =====================================================
 
   return (
     <div>
@@ -446,10 +479,8 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
         <>
           <ToBaseSelection
             selectedRunner={selectedRunnerId}
-            fromBase={selectedRunner.fromBase} // ★ 追加
-            selectedToBase={
-              selectedToBase ?? selectedRunner.fromBase // ★ まだ選んでなければ現在の塁
-            }
+            fromBase={selectedRunner.fromBase}
+            selectedToBase={selectedToBase ?? selectedRunner.fromBase}
             onToBaseSelect={handleToBaseSelect}
           />
 
@@ -469,19 +500,17 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
             selectedOutcome={selectedOutcome}
             onOutcomeSelect={handleOutcomeSelect}
             onAddAdvance={() => {
-              // ここはそのまま
+              // ここは利用しない
             }}
           />
         </>
       )}
 
-      {/* ✅ 修正: AdvanceList に index ベースの削除関数を渡す */}
       <AdvanceList
         runnerAdvances={displayAdvances}
         onRemoveAdvance={handleRemoveAdvance}
       />
 
-      {/* 全員分の入力が終わったら「進塁を追加」ボタンを表示 */}
       {allRunners.length > 0 && (
         <button
           onClick={handleComplete}
@@ -499,30 +528,31 @@ export const RunnerScreen: React.FC<RunnerScreenProps> = ({
       {/* 進塁が追加されていない場合のみナビゲーションボタンを表示 */}
       {!showNavigationButtons && displayAdvances.length === 0 && (
         <NavigationButtons
-          onNavigateToCutPlay={onNavigateToCutPlay}
-          onNavigateToRundown={onNavigateToRundown}
-          onNavigateToRunner={onNavigateToRunner}
-          onNavigateToResult={onNavigateToResult}
+          onNavigateToCutPlay={handleNavigateToCutPlay}
+          onNavigateToRundown={handleNavigateToRundown}
+          onNavigateToRunner={handleNavigateToRunner}
+          onNavigateToResult={handleNavigateToResult}
         />
       )}
+
       {showNavigationButtons && displayAdvances.length === 0 && (
         <div className="mt-4 border-t border-gray-700 pt-3">
           <h4 className="text-xs text-gray-400 mb-2">処理順選択</h4>
           <div className="grid grid-cols-4 gap-2">
             <button
-              onClick={onNavigateToCutPlayFromButtons}
+              onClick={handleNavigateToCutPlay}
               className="py-2 bg-blue-600 rounded-lg font-bold text-xs"
             >
               カット
             </button>
             <button
-              onClick={onNavigateToRundownFromButtons}
+              onClick={handleNavigateToRundown}
               className="py-2 bg-orange-600 rounded-lg font-bold text-xs"
             >
               挟殺
             </button>
             <button
-              onClick={onNavigateToRunnerFromButtons}
+              onClick={handleNavigateToRunner}
               className="py-2 bg-green-600 rounded-lg font-bold text-xs"
             >
               走者
